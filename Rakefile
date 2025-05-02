@@ -1,5 +1,7 @@
 # encoding: utf-8
 
+ENV["BRANCH"] = 'main'
+
 require 'rubygems'
 require 'rake'
 require 'juwelier'
