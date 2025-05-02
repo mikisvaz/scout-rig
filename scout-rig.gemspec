@@ -37,6 +37,7 @@ Gem::Specification.new do |s|
     "python/scout/workflow.py",
     "python/scout/workflow/remote.py",
     "python/test.py",
+    "scout-rig.gemspec",
     "test/scout/python/test_script.rb",
     "test/scout/python/test_util.rb",
     "test/scout/test_python.rb",
