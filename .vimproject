@@ -1,0 +1,30 @@
+scout-rig=/$PWD filter="*" {
+ LICENSE.txt
+ README.rdoc
+ Rakefile
+ lib=lib {
+  scout-rig.rb
+  scout=scout{
+   python.rb
+   python=python{
+    paths.rb
+    run.rb
+    script.rb
+    util.rb
+   }
+  }
+ }
+ test=test{
+  test_helper.rb
+ }
+ python=python{
+  test.py
+  scout=scout{
+   __init__.py
+   workflow.py
+   workflow=workflow{
+    remote.py
+   }
+  }
+ }
+}
