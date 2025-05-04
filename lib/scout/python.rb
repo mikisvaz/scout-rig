@@ -2,6 +2,8 @@ require 'scout'
 require 'pycall/import'
 require_relative 'python/paths'
 require_relative 'python/run'
+require_relative 'python/script'
+require_relative 'python/util'
 
 module ScoutPython
   extend PyCall::Import
