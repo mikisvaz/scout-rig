@@ -31,6 +31,7 @@ module ScoutPython
 
     self.thread ||= Thread.new do
       require 'pycall'
+      ScoutPython.init_scout
       ScoutPython.process_paths
       begin
         while block = QUEUE_IN.pop
@@ -48,8 +49,6 @@ module ScoutPython
       rescue Exception
         Log.exception $!
         raise $!
-      ensure
-        PyCall.finalize if PyCall.respond_to?(:finalize)
       end
     end
   end
@@ -64,9 +63,14 @@ module ScoutPython
 
   def self.stop_thread
     self.synchronize do
-      QUEUE_IN.push :stop
-    end if self.thread && self.thread.alive?
-    self.thread.join if self.thread
+      if self.thread && self.thread.alive?
+        QUEUE_IN.push :stop
+        self.thread.join(2) || self.thread.kill
+        GC.start
+        PyCall.finalize if PyCall.respond_to?(:finalize)
+      end
+      self.thread = nil
+    end
   end
 
   def self.run_direct(mod = nil, imports = nil, &block)
@@ -104,8 +108,13 @@ module ScoutPython
     end
   end
 
-  class << self
-    alias run run_simple
+  def self.run(...)
+    begin
+      ScoutPython.init_scout
+      run_simple(...)
+    ensure
+      GC.start
+    end
   end
 
   def self.run_log(mod = nil, imports = nil, severity = 0, severity_err = nil, &block)

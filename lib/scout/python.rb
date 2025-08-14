@@ -12,12 +12,28 @@ module ScoutPython
 
   def self.init_scout
     if ! defined?(@@__init_scout_python) || ! @@__init_scout_python
+      PyCall.init
+
       ScoutPython.process_paths
-      res = ScoutPython.run do
+      res = ScoutPython.run_direct do
         Log.debug "Loading python 'scout' module into pycall ScoutPython module"
         pyimport("scout")
       end
       @@__init_scout_python = true
+
+      at_exit do
+        (Thread.list - [Thread.current]).each { |t| t.kill }
+        (Thread.list - [Thread.current]).each { |t| t.join rescue nil }
+
+        # GC while Python is still initialized so PyCall can safely acquire the GIL
+        GC.start
+
+        # (Optional) tiny no-op to ensure GIL path is healthy
+        begin
+          PyCall.builtins.object
+        rescue => _
+        end
+      end
     end
   end
 
