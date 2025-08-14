@@ -99,13 +99,16 @@ module ScoutPython
 
   def self.run_simple(mod = nil, imports = nil, &block)
     self.synchronize do
-      ScoutPython.process_paths
-      run_direct(mod, imports, &block)
+      PyCall.without_gvl do
+        ScoutPython.process_paths
+        run_direct(mod, imports, &block)
+      end
     end
   end
 
-  class << self
-    alias run run_simple
+  def self.run(...)
+    ScoutPython.init_scout
+    run_simple(...)
   end
 
   def self.run_log(mod = nil, imports = nil, severity = 0, severity_err = nil, &block)

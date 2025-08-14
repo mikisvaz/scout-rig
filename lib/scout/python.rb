@@ -12,8 +12,9 @@ module ScoutPython
 
   def self.init_scout
     if ! defined?(@@__init_scout_python) || ! @@__init_scout_python
+      PyCall.init
       ScoutPython.process_paths
-      res = ScoutPython.run do
+      res = ScoutPython.run_direct do
         Log.debug "Loading python 'scout' module into pycall ScoutPython module"
         pyimport("scout")
       end
