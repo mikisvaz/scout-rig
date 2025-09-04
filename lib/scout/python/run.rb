@@ -78,11 +78,17 @@ module ScoutPython
       if Hash === imports
         pyimport mod, **imports
       elsif imports.nil?
-        pyimport mod 
+        if Array === mod
+          mod.each do |m|
+            pyimport m
+          end
+        else
+          pyimport mod
+        end
       else
         pyfrom mod, :import => imports
       end
-    end 
+    end
 
     module_eval(&block)
   end
