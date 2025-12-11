@@ -9,6 +9,10 @@ scout-rig=/$PWD filter="*" {
 
   python_init
 
+  python_pycall
+
+  python_multi
+
   docstring
  }
  lib=lib {
