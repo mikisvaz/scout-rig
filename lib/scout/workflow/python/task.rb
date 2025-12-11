@@ -60,7 +60,7 @@ module PythonWorkflow
 
   def python_task(task_sym, file: nil, returns: nil, extension: nil, desc: nil)
     name = task_sym.to_s
-    file ||= File.join(python_task_dir, "#{name}.py")
+    file ||= python_task_dir[name].find_with_extension('py')
     raise "Python task file not found: #{file}" unless File.exist?(file)
 
     metas = PythonWorkflow.read_python_metadata(file)

@@ -28,10 +28,9 @@ def hello(name: str, excited: bool = False) -> str:
 scout.task(hello)
     EOF
 
-    sss 0
     TmpFile.with_file code do |task_file|
       res = PythonWorkflow.read_python_metadata task_file
-      iii res
+      assert_equal 'hello', res.first['name']
     end
   end
 end

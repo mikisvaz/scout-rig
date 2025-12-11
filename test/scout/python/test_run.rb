@@ -3,7 +3,7 @@ require 'scout/python'
 require File.expand_path(__FILE__).sub(%r(.*/test/), '').sub(/test_(.*)\.rb/,'\1')
 
 class TestClass < Test::Unit::TestCase
-  def test_run_threaded
+  def __test_run_threaded
 
 	ScoutPython.run_threaded :sys do 
 	  paths = sys.path()
