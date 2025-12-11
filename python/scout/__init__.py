@@ -6,12 +6,12 @@ import shutil
 import pandas
 import numpy
 
-
 def cmd(cmd=None):
     if cmd is None:
         print("Rbbt")
     else:
         return subprocess.run('rbbt_exec.rb', input=cmd.encode('utf-8'), capture_output=True).stdout.decode()
+
 
 
 def libdir():
@@ -219,3 +219,10 @@ if __name__ == "__main__":
     import json
     res = run_job('Baking', 'bake_muffin_tray', 'test', add_blueberries=True, fork=True)
     print(res)
+
+# expose smaller task helper implemented in runner.py
+try:
+    from .runner import task, describe_function
+except Exception:
+    # avoid failing import if runner missing
+    pass

@@ -107,4 +107,9 @@ if result is not None:
       end
     end
   end
+
+  def self.run_file(file, arg_str)
+    path_env = ScoutPython.paths * ":"
+    CMD.cmd("env PYTHONPATH=#{path_env} python '#{file}' #{arg_str}")
+  end
 end

@@ -2,6 +2,15 @@ scout-rig=/$PWD filter="*" {
  LICENSE.txt
  README.rdoc
  Rakefile
+ chats=chats{
+  documenter.rb
+
+  python_workflow
+
+  python_init
+
+  docstring
+ }
  lib=lib {
   scout-rig.rb
   scout=scout{
@@ -12,17 +21,29 @@ scout-rig=/$PWD filter="*" {
     script.rb
     util.rb
    }
+   workflow=workflow{
+    python.rb
+    python=python{
+     inputs.rb
+     task.rb
+    }
+   }
   }
  }
  test=test{
   test_helper.rb
  }
  python=python{
+  task=task{
+   hello.py
+  }
   test.py
   scout=scout{
    __init__.py
+   runner.py
    workflow.py
    workflow=workflow{
+    definition.py
     remote.py
    }
   }
