@@ -4,8 +4,13 @@ import json
 import sys
 from pathlib import Path
 from typing import get_origin, get_args, Union, List
+import atexit
 
 __all__ = ["task", "describe_function"]
+
+# registry to hold tasks defined via scout.task in a module
+_SCOUT_TASK_REGISTRY = []  # list of (func, meta)
+_SCOUT_DEFER_REGISTERED = set()
 
 
 def _python_type_to_string(ann) -> str:
@@ -196,6 +201,7 @@ def _write_output(out_path: str, data):
 
 
 def _run_cli(func, meta: dict):
+    # single-function CLI metadata
     if "--scout-metadata" in sys.argv:
         print(json.dumps(meta))
         return 0
@@ -221,10 +227,44 @@ def _run_cli(func, meta: dict):
         _write_output(out_path, result)
         return 0
 
+    # Serialization rules:
+    # - bytes -> raw bytes to stdout.buffer
+    # - str/int/float/bool/None -> printed as plain string
+    # - list/tuple -> newline-separated items
+    # - others -> JSON dump
     if isinstance(result, (bytes, bytearray)):
         sys.stdout.buffer.write(result)
-    else:
+        return 0
+
+    if result is None or isinstance(result, (str, int, float, bool)):
         print(result if result is not None else "")
+        return 0
+
+    if isinstance(result, (list, tuple)):
+        # print each item on its own line
+        for item in result:
+            # convert None to empty string
+            if item is None:
+                print("")
+            else:
+                # bytes inside list -> decode
+                if isinstance(item, (bytes, bytearray)):
+                    try:
+                        sys.stdout.buffer.write(item)
+                        # ensure newline
+                        sys.stdout.buffer.write(b"\n")
+                    except Exception:
+                        print(str(item))
+                else:
+                    print(item)
+        return 0
+
+    # fallback: JSON serialize (use default=str to handle Paths etc.)
+    try:
+        print(json.dumps(result, default=str, ensure_ascii=False))
+    except Exception:
+        # last resort: string representation
+        print(str(result))
     return 0
 
 
@@ -235,15 +275,111 @@ def task(func=None, **options):
     meta = describe_function(func)
     setattr(func, "__scout_meta__", meta)
 
+    # register globally
+    _SCOUT_TASK_REGISTRY.append((func, meta))
+
     mod = inspect.getmodule(func)
+    # If the defining module is executed as a script, defer execution until
+    # after the module is fully imported by using an atexit handler. This
+    # allows multiple scout.task(...) calls to register multiple functions.
     if mod and getattr(mod, "__name__", None) == "__main__":
-        try:
-            code = _run_cli(func, meta)
-            sys.exit(code)
-        except SystemExit:
-            raise
-        except Exception as e:
-            print(f"[scout.task] Error: {e}", file=sys.stderr)
-            sys.exit(1)
+        mod_id = id(mod)
+        if mod_id not in _SCOUT_DEFER_REGISTERED:
+            _SCOUT_DEFER_REGISTERED.add(mod_id)
+
+            def _scout_run_deferred():
+                # if metadata requested, emit all metas
+                if "--scout-metadata" in sys.argv:
+                    metas = [m for (_f, m) in _SCOUT_TASK_REGISTRY]
+                    print(json.dumps(metas))
+                    return
+
+                # Determine if user requested help
+                has_help = any(a in ("-h", "--help") for a in sys.argv[1:])
+
+                # Determine function to run: optional first positional arg
+                args = sys.argv[1:]
+                func_name = None
+                if len(args) >= 1 and not args[0].startswith("-"):
+                    func_name = args[0]
+                    # do not pop yet; if running we will pop below
+
+                # If user requested help, show the help for the selected task and exit
+                if has_help:
+                    # choose meta
+                    chosen_meta = None
+                    if func_name:
+                        for _f, m in _SCOUT_TASK_REGISTRY:
+                            if m.get('name') == func_name:
+                                chosen_meta = m
+                                break
+                        if chosen_meta is None:
+                            print(f"[scout.task] Unknown task '{func_name}'", file=sys.stderr)
+                            import os
+                            os._exit(2)
+                    else:
+                        chosen_meta = _SCOUT_TASK_REGISTRY[-1][1]
+
+                    # Build a parser for that function and print help
+                    parser = argparse.ArgumentParser(prog=f"{Path(sys.argv[0]).name} {chosen_meta.get('name')}", description=chosen_meta.get('description') or "")
+                    for p in chosen_meta['params']:
+                        _add_arg_for_param(parser, p)
+                    parser.add_argument("--scout-output", default=None, help="Optional output file path for the result")
+                    parser.print_help()
+                    try:
+                        sys.stdout.flush()
+                    except Exception:
+                        pass
+                    try:
+                        sys.stderr.flush()
+                    except Exception:
+                        pass
+                    import os
+                    os._exit(0)
+
+                chosen = None
+                if func_name:
+                    for f, m in _SCOUT_TASK_REGISTRY:
+                        if m.get('name') == func_name:
+                            chosen = (f, m)
+                            break
+                    if chosen is None:
+                        print(f"[scout.task] Unknown task '{func_name}'", file=sys.stderr)
+                        sys.exit(2)
+                else:
+                    # default: last registered task
+                    chosen = _SCOUT_TASK_REGISTRY[-1]
+
+                try:
+                    # if a function name was provided as first positional arg, remove it
+                    if func_name and len(sys.argv) > 1:
+                        # remove the first positional argument (function name)
+                        sys.argv.pop(1)
+
+                    code = _run_cli(chosen[0], chosen[1])
+                    try:
+                        sys.stdout.flush()
+                    except Exception:
+                        pass
+                    try:
+                        sys.stderr.flush()
+                    except Exception:
+                        pass
+                    import os
+                    os._exit(code)
+                except SystemExit as e:
+                    # argparse may trigger SystemExit (e.g. --help). Ensure we exit quietly.
+                    try:
+                        import os
+                        code = e.code if isinstance(e.code, int) else 0
+                        os._exit(code)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    print(f"[scout.task] Error: {e}", file=sys.stderr)
+                    import os
+                    os._exit(1)
+
+            atexit.register(_scout_run_deferred)
 
     return func

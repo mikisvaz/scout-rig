@@ -188,9 +188,9 @@ def save_job_inputs(data):
     return temp_dir
 
 
-def run_job(workflow, task, name='Default', fork=False, clean=False, **kwargs):
+def run_job(workflow, task, jobname='Default', fork=False, clean=False, **kwargs):
     inputs_dir = save_job_inputs(kwargs)
-    cmd = ['rbbt', 'workflow', 'task', workflow, task, '--jobname', name, '--load_inputs', inputs_dir, '--nocolor']
+    cmd = ['rbbt', 'workflow', 'task', workflow, task, '--jobname', jobname, '--load_inputs', inputs_dir, '--nocolor']
 
     if fork:
         cmd.append('--fork')
