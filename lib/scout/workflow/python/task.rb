@@ -10,6 +10,7 @@ module PythonWorkflow
 
   def self.map_returns(py_type)
     case py_type
+    when nil then :string
     when 'string' then :string
     when 'integer' then :integer
     when 'float' then :float
