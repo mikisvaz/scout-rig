@@ -3,6 +3,7 @@ scout-rig=/$PWD filter="*" {
  README.rdoc
  Rakefile
  chats=chats{
+
   documenter.rb
 
   python_workflow
