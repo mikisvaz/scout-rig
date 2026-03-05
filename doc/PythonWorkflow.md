@@ -24,7 +24,16 @@ Example Python task
 import scout
 
 def hello(name: str, excited: bool = False) -> str:
-    """Greet a user."""
+    """
+    Generate a greeting.
+
+    Args:
+        name: Name of the person to greet.
+        excited: Whether to add an exclamation mark.
+
+    Returns:
+        Greeting text.
+    """
     return f"Hello, {name}{'!' if excited else ''}"
 
 scout.task(hello)
@@ -120,7 +129,35 @@ Register a Python function as a Scout-compatible task and enable metadata/CLI ex
 A Python task script should end with one or more `scout.task(function)` calls. This:
 
 - Captures signature, type hints, and docstring to build a metadata object.
+- Parses per-argument documentation primarily from Google-style `Args:` sections.
 - Enables `--scout-metadata` output for Ruby to consume.
 - Enables standalone CLI execution using argparse, including support for list and boolean arguments.
 
 For scripts that register multiple functions, `scout.task` defers CLI dispatch until interpreter shutdown so all functions are registered before selecting a target function.
+
+Docstring format for parameter descriptions
+
+To maximize interoperability with agent/tool frameworks and to provide good CLI help text, write docstrings in Google style.
+
+Recommended pattern:
+
+```python
+def my_task(query: str, max_results: int = 10) -> str:
+    """
+    Search items.
+
+    Args:
+        query: Natural language query describing what to search.
+        max_results: Maximum number of results to return.
+
+    Returns:
+        A newline-delimited or JSON-encoded result.
+    """
+```
+
+Notes:
+
+- The task description is taken from the docstring preamble: everything up to the first `Args:`/`Arguments:` or `Returns:` section.
+- The `Args:` section is used to populate each parameter `help` field in `--scout-metadata`.
+- Multi-line argument descriptions are supported as long as continuation lines stay indented.
+- A NumPy-style `Parameters` section is still accepted as a legacy fallback, but `Args:` is preferred.

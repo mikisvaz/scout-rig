@@ -12,7 +12,7 @@ module PythonWorkflow
     @python_task_dir ||= Scout.python.task.find(:lib) 
   end
 
-  def self.load_directory(path, workflow_name = nil)
+  def self.load_directory(path = nil, workflow_name = nil)
     workflow = begin
                    m = Module.new
                    m.extend Workflow
@@ -22,6 +22,7 @@ module PythonWorkflow
                    m
                  end
 
+    path = Scout.python.task
     workflow.python_task_dir = path
     path.glob_names("*.py").each do |name|
       name = name.sub '.py', ''

@@ -1,6 +1,7 @@
 import argparse
 import inspect
 import json
+import re
 import sys
 from pathlib import Path
 from typing import get_origin, get_args, Union, List
@@ -57,9 +58,118 @@ def _required_from_default(default_val, ann) -> bool:
 
 
 def _parse_numpy_params(doc: str) -> dict:
+    """
+    Extract per-parameter documentation from a docstring.
+
+    Despite the historical name, this parser prefers Google-style docstrings
+    ("Args:") because they map cleanly to tool schemas used by AI agents.
+
+    Supported formats:
+
+    Google style (recommended)::
+
+        Do something.
+
+        Args:
+            name: Description.
+            flag: Description that can wrap to
+                multiple indented lines.
+
+        Returns:
+            Description.
+
+    NumPy style (legacy fallback)::
+
+        Parameters
+        ----------
+        name : str
+            Description.
+
+    Returns:
+        dict mapping parameter name -> description string
+    """
+
     if not doc:
         return {}
+
     lines = doc.splitlines()
+
+    # -- Google style: Args: / Arguments: -----------------------------------
+    def parse_google_args() -> dict:
+        params = {}
+        i = 0
+        # Find section header
+        while i < len(lines):
+            header = lines[i].strip()
+            if header in ("Args:", "Arguments:"):
+                i += 1
+                break
+            i += 1
+        else:
+            return {}
+
+        # Parse items until next top-level section (Returns:, Raises:, etc.)
+        current = None
+        current_desc = []
+
+        def flush():
+            nonlocal current, current_desc
+            if current:
+                params[current] = " ".join(s.strip() for s in current_desc).strip()
+            current = None
+            current_desc = []
+
+        while i < len(lines):
+            raw = lines[i]
+            stripped = raw.strip()
+
+            # End conditions: next section header at left margin
+            if stripped.endswith(":") and not raw.startswith((" ", "\t")):
+                # Example: "Returns:", "Raises:", "Examples:", ...
+                break
+
+            # Skip empty lines between entries
+            if stripped == "":
+                if current is not None:
+                    current_desc.append("")
+                i += 1
+                continue
+
+            # Item start: indented "name:" or "name (type):"
+            # We require indentation so we don't confuse it with section headers.
+            if raw.startswith((" ", "\t")):
+                # Google-style param line (type is optional and ignored):
+                #   name: description
+                #   name (str): description
+                m = re.match(r"^\s*([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*:\s*(.*)$", stripped)
+                if m:
+                    param_name = m.group(1)
+                    first_desc = m.group(2).strip()
+
+                    if current and param_name != current:
+                        flush()
+                    if current is None:
+                        current = param_name
+                    if first_desc:
+                        current_desc.append(first_desc)
+                    i += 1
+                    continue
+
+            # Continuation line (more indented than the item header)
+            if current is not None:
+                current_desc.append(stripped)
+
+            i += 1
+
+        flush()
+        # Drop empty descriptions
+        return {k: v for k, v in params.items() if v is not None}
+
+    google = parse_google_args()
+    if google:
+        return google
+
+    # -- NumPy style fallback: Parameters / ---------- ----------------------
     params = {}
     i = 0
     while i < len(lines):
@@ -94,13 +204,54 @@ def _parse_numpy_params(doc: str) -> dict:
     return params
 
 
+def _extract_description(docstring: str) -> str:
+    """Extract a task description from a docstring.
+
+    The description is the full docstring preamble (potentially multiple lines
+    and paragraphs) up to the first schema-oriented section header.
+
+    This matches common conventions in LLM tool / JSON-schema extraction:
+    the preamble is the capability description, while sections like "Args:" and
+    "Returns:" provide structured schema information.
+    """
+
+    if not docstring:
+        return ""
+
+    stop_headers = {
+        # Google-style
+        "args:", "arguments:", "returns:", "raises:", "examples:", "example:",
+        "notes:", "note:",
+        # NumPy-style
+        "parameters", "returns", "raises", "examples", "notes",
+    }
+
+    out_lines = []
+    for line in docstring.splitlines():
+        stripped = line.strip()
+
+        # Stop at first recognized header line
+        if stripped and stripped.lower() in stop_headers:
+            break
+
+        out_lines.append(line.rstrip())
+
+    # Trim leading/trailing blank lines, preserve internal blank lines.
+    while out_lines and out_lines[0].strip() == "":
+        out_lines.pop(0)
+    while out_lines and out_lines[-1].strip() == "":
+        out_lines.pop()
+
+    return "\n".join(out_lines).strip()
+
+
 def describe_function(func) -> dict:
     sig = inspect.signature(func)
     doc = inspect.getdoc(func) or ""
     params_doc = _parse_numpy_params(doc)
 
     ret_type = _python_type_to_string(sig.return_annotation)
-    description = doc.split("\n\n", 1)[0] if doc else ""
+    description = _extract_description(doc)
 
     params = []
     for name, p in sig.parameters.items():

@@ -40,7 +40,6 @@ scout-rig=/$PWD filter="*" {
  }
  python=python{
   task=task{
-   hello.py
   }
   test.py
   scout=scout{
@@ -48,9 +47,12 @@ scout-rig=/$PWD filter="*" {
    runner.py
    workflow.py
    workflow=workflow{
-    definition.py
     remote.py
    }
   }
+ }
+ doc=doc{
+  Python.md
+  PythonWorkflow.md
  }
 }
