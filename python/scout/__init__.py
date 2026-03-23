@@ -188,13 +188,16 @@ def save_job_inputs(data):
     return temp_dir
 
 
-def run_job(workflow, task, jobname='Default', fork=False, clean=False, **kwargs):
+def run_job(workflow, task, jobname='Default', fork=False, clean=False, exec=False, **kwargs):
     inputs_dir = save_job_inputs(kwargs)
     cmd = ['rbbt', 'workflow', 'task', workflow, task, '--jobname', jobname, '--load_inputs', inputs_dir, '--nocolor']
 
     if fork:
         cmd.append('--fork')
         cmd.append('--detach')
+
+    if exec:
+        cmd.append('--exec')
 
     if clean:
         if clean == 'recursive':
