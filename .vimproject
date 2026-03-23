@@ -38,9 +38,7 @@ scout-rig=/$PWD filter="*" {
  test=test{
   test_helper.rb
  }
- python=python{
-  task=task{
-  }
+ python=python filter="*.py"{
   test.py
   scout=scout{
    __init__.py
