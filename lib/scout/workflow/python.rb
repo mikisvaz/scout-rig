@@ -22,7 +22,10 @@ module PythonWorkflow
                    m
                  end
 
-    path = Scout.python.task
+    Kernel.const_set workflow_name, workflow
+
+    path = Scout.python.task if path.nil?
+
     workflow.python_task_dir = path
     path.glob_names("*.py").each do |name|
       name = name.sub '.py', ''
