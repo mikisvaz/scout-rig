@@ -48,5 +48,14 @@ module ScoutPython
     end
     hash
   end
+
+  def self.dict2hash(obj)
+    keys = py2ruby_a(obj.keys)
+    hash = {}
+    keys.each do |k|
+      hash[k] = obj.get(k)
+    end
+    hash
+  end
 end
 
