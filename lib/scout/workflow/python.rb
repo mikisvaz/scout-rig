@@ -9,7 +9,7 @@ module PythonWorkflow
   attr_accessor :python_task_dir
 
   def python_task_dir
-    @python_task_dir ||= Scout.python.task.find(:lib) 
+    @python_task_dir ||= Scout.python.task.find
   end
 
   def self.load_directory(path = nil, workflow_name = nil)
