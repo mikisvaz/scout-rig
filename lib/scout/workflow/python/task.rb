@@ -73,7 +73,11 @@ module PythonWorkflow
       task_desc = desc || meta['description']
 
       ruby_returns = PythonWorkflow.map_returns(meta['returns'])
-      ruby_inputs  = meta['params'].map { |p| PythonWorkflow.map_param(p) }
+      if meta['params']
+        ruby_inputs  = []
+      else
+        ruby_inputs  = meta['params'].map { |p| PythonWorkflow.map_param(p) }
+      end
 
       ruby_inputs.each do |inp|
         input(inp[:name].to_sym, inp[:type], inp[:desc], inp[:default], inp[:options] || {})
