@@ -73,7 +73,7 @@ module PythonWorkflow
       task_desc = desc || meta['description']
 
       ruby_returns = PythonWorkflow.map_returns(meta['returns'])
-      if meta['params']
+      if meta['params'].nil?
         ruby_inputs  = []
       else
         ruby_inputs  = meta['params'].map { |p| PythonWorkflow.map_param(p) }
