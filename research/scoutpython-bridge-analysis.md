@@ -1,6 +1,17 @@
 # ScoutPython Bridge Analysis
 
 > **Non-normative.** Investigation artifact. See `00_scope_and_themes.md` for disclaimer.
+>
+> **Status note (2026-09-12):** written before the verification campaign;
+> several claims have since been refined by probes. The authoritative,
+> probe-backed account of execution modes, threading, `at_exit` and
+> `sys.path` behaviour is
+> [`doc/developer/ScoutPythonInternals.md`](../doc/developer/ScoutPythonInternals.md)
+> (user view: `doc/user/RunningPythonFromRuby.md`), with evidence in the
+> Cortex artifact `scout-rig/subsys/python-bridge.md`. In particular this
+> analysis predates the finding that `run_threaded` never exits cleanly
+> (B2) and that main-thread modes duplicate the Scout directory on every
+> `run` (O2).
 
 ## Overview
 

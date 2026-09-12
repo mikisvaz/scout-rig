@@ -46,7 +46,16 @@ df = ScoutPython.tsv2df(tsv)
 The resulting DataFrame has:
 - Index: the TSV keys (`BRCA1`, `TP53`)
 - Columns: the TSV fields (`LogFoldChange`, `PValue`)
-- Column name: the key field (`Gene`)
+- Column name: the key field (`Gene`) — `tsv2df` sets `df.columns.name`,
+  **not** `df.index.name`, which stays `nil`. Keep this in mind if you build
+  DataFrames both ways: `scout.tsv()` (the file loader used by `script()`)
+  does the opposite and sets `df.index.name` only.
+
+Also note the values are passed through **unchanged**: a TSV column of
+strings becomes a pandas `object` dtype column holding those exact strings
+(`"1.5"` stays `"1.5"`), because the values travel as Python objects through
+PyCall rather than being parsed by `read_table`. Type inference only happens
+when a TSV goes through a file, i.e. in `script()` variables — see below.
 
 ### DataFrame to TSV
 
@@ -55,7 +64,25 @@ new_tsv = ScoutPython.df2tsv(df)
 # new_tsv is a Ruby TSV with type :list by default
 ```
 
-The round-trip is lossless: `df2tsv(tsv2df(tsv)) == tsv`.
+The round-trip is lossless **for well-formed `:list` TSVs of string values**:
+`df2tsv(tsv2df(tsv)) == tsv`. Verified round-tripping includes values that
+contain `;`, `,` and `"` (the dump path escapes them), and the Ruby `:NA`
+sentinel string (which stays the literal string `":NA"`).
+
+Things that do **not** survive, verified by probe:
+
+- **`tsv.key_field` is taken from `df.columns.name`, not the index name.**
+  Round-tripping a DataFrame that was loaded by `scout.tsv()` (whose
+  `columns.name` is unset) yields `key_field == ""`.
+- **Type is forced to `:list`** (the default); the original TSV type is not
+  remembered, and a `:flat`/`:single` TSV comes back as `:list` with nested
+  single-element arrays.
+- **Ragged rows** (a row with more values than the header has fields) raise
+  `ValueError: Length mismatch` when loaded through `scout.tsv()` in
+  `script()`, while the Ruby TSV tolerates them — the two loaders are
+  asymmetric.
+- **Numbers keep their TSV string form in-process** (`"1.5"` stays `"1.5"`);
+  going through a file in `script()` converts the column to `float64`.
 
 ## Numpy arrays to Ruby arrays
 
@@ -68,7 +95,23 @@ end
 ```
 
 `numpy2ruby` calls `.tolist()` on the numpy array (Python-side conversion),
-then maps the result to Ruby arrays.
+then converts the result with `list2ruby`, which recurses into nested
+`PyCall::List` objects.
+
+Dtype behaviour, verified by probe:
+
+| numpy dtype | Result in Ruby |
+|-------------|----------------|
+| `int64` (2-D) | nested Ruby `Array` of `Integer`: `[[1, 2], [3, 4]]` |
+| `float64` with `NaN` | `Float`, with `NaN` as `Float::NAN` |
+| `str` / `object` (strings) | `Array` of `String` |
+| `object` (mixed `1`, `"a"`) | **all strings**: `["1", "a"]` — PyCall stringifies mixed objects |
+| `bool` | `[true, false]` |
+| `datetime64[D]` | **opaque objects**: Ruby `Object` whose `to_s` is `datetime.date(2020, 1, 1)`; call `.to_s`/`strftime` on the Python side first |
+
+Note `numpy2ruby` requires numpy to be importable in the running session
+(`ScoutPython.run(:numpy, as: :np)` above takes care of that); without it
+`.tolist` is undefined.
 
 ## Python lists to Ruby arrays
 
@@ -81,15 +124,22 @@ end
 # result is a Ruby Array: [1, 2, 3]
 ```
 
-For deeply nested lists, use `list2ruby` which recurses:
+For nested lists, use `list2ruby`, which recurses into `PyCall::List`
+members:
 
 ```ruby
 nested = ScoutPython.run do
   pyimport :json
   ScoutPython.list2ruby(json.loads('[[1, 2], [3, 4]]'))
 end
-# nested is [[1, 2], [3, 4]] (all nested PyCall::List converted)
+# nested is [[1, 2], [3, 4]] — genuinely nested Ruby Arrays
 ```
+
+By contrast `py2ruby_a` (and its `ScoutPython.to_a` alias) is **flat**: with
+`[[1, 2], [3, 4]]` it returns a Ruby `Array` whose elements are still
+PyCall list objects. They compare equal to the corresponding Ruby arrays
+(`r.first == [1, 2]` is true) but are not `Array`s — use `list2ruby` when
+you need real nested arrays.
 
 ## Python dicts to Ruby hashes
 
@@ -104,6 +154,20 @@ end
 
 `obj2hash` works with any Python object that has `.keys` and `[]` access
 (dicts, DataFrames, etc.).
+
+`obj2hash` and `dict2hash` differ in one important way:
+
+- **`dict2hash` reads values with `obj.get(k)`** and returns **eagerly
+  converted** values (`{"x" => 1, "y" => 2}`). Use it for real dicts.
+  On a DataFrame `get` resolves to something else entirely and you get the
+  Series back anyway (`{"x" => <Series proxy>}`), so it is not a way to
+  obtain converted DataFrame columns.
+- **`obj2hash` reads values with `obj[k]`**, which on a DataFrame yields the
+  **column as a live proxy** (a pandas `Series`), not a converted value.
+  Convert it yourself (`ScoutPython.list2ruby(h["x"].tolist)`) or use
+  `df2tsv` when you want native Ruby data out of a DataFrame.
+
+Both build plain Ruby `Hash`es with the keys converted to Ruby strings.
 
 ## Passing data via `script()`
 
@@ -140,6 +204,16 @@ ScoutPython.script <<~PY, df: tsv
   result = df.shape  # DataFrame attribute
 PY
 ```
+
+### Assuming the file path preserves your types
+
+Because `script()` TSV variables go through `scout.tsv()`
+(`pandas.read_table`), pandas applies its own NA and type inference:
+`NA`, `""`, `nan`, `None` all become `NaN` and a numeric-looking column
+becomes `float64`. The Ruby `:NA` sentinel is protected by its leading
+colon (`":NA"` survives as the literal string `":NA"`), but a plain `"NA"`
+does **not** survive. If you need exact string round-tripping, keep the data
+in-process (`tsv2df`) or quote/escape it yourself.
 
 ## See also
 

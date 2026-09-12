@@ -2,6 +2,14 @@
 
 > **Non-normative.** This report records the validation checks performed on
 > the scout-rig documentation.
+>
+> **Status note (2026-09-12):** predates the subsystem verification
+> campaign. Its PASS verdict applied to the page set as it stood then,
+> before `PythonEnvironments.md`, `TestingAndPackaging.md` and
+> `PythonTaskRunnerInternals.md` existed. A later corpus-level sweep
+> (27 files — README.md, doc/, research/ and python/README.md; 122 relative
+> links, all resolving, plus the remote scout-essentials/scout-ai URLs) is
+> recorded in the Cortex artifact `scout-rig/subsys/doc-corpus.md`.
 
 ## Validation scope
 

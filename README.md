@@ -14,9 +14,10 @@ For broader background and many real workflow examples, see Rbbt (the bioinforma
 - https://github.com/mikisvaz/rbbt
 - https://github.com/Rbbt-Workflows
 
-This README focuses on the Python bridge in scout-rig (ScoutPython). See the docs in doc/ for reference material.
-
-- doc/Python.md — ScoutPython user guide
+This README focuses on the Python bridge in scout-rig (ScoutPython). See
+[doc/StartHere.md](doc/StartHere.md) for the full reference material: user
+guides in doc/user/, internals in doc/developer/, and investigation notes in
+research/.
 
 ---
 
@@ -59,6 +60,21 @@ Python
 - Ensure python3 is in PATH
 
 Add scout-rig to your Ruby project (Gemfile or local checkout), then ensure Python dependencies are installed in your Python environment.
+
+---
+
+## Development and testing
+
+The repository tests itself with `rake test` (a `Rake::TestTask` over
+`test/**/test_*.rb`). Note that the suite needs a Python environment whose
+interpreter is reachable as `python` on `PATH` (both the in-process PyCall
+route and the `script()`/`run_file` subprocess route use it), and the one
+enabled test in `test/scout/test_python.rb` imports `torch`, so a plain
+`rake test` errors out unless the interpreter on `PATH` has `torch`
+installed. See [doc/user/TestingAndPackaging.md](doc/user/TestingAndPackaging.md)
+for the full picture: interpreter selection via `PATH`/`PYTHON`, per-file
+prerequisites, individual test commands, and how to build the gem
+(`rake gemspec` then `rake build`) and the Python package.
 
 ---
 
@@ -267,7 +283,7 @@ scout-rig itself does not register standalone CLI commands; instead, its Python 
 
 ## Reference
 
-Read the full module guide in doc/Python.md. For core building blocks referenced above, see these docs in scout-essentials and scout-gear:
+Read the full documentation set from [doc/StartHere.md](doc/StartHere.md) — user guides in doc/user/, internals in doc/developer/. For core building blocks referenced above, see these docs in scout-essentials and scout-gear:
 
 - Annotation.md, CMD.md, ConcurrentStream.md, IndiferentHash.md, Log.md, Open.md, Path.md, Persist.md, TmpFile.md
 - TSV.md, Workflow.md, KnowledgeBase.md, Association.md, Entity.md, WorkQueue.md, Semaphore.md

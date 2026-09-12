@@ -2,6 +2,13 @@
 
 > **Non-normative.** This report cross-checks all investigation artifacts,
 > identifies gaps, and produces a concrete writing plan for the new documentation.
+>
+> **Status note (2026-09-12):** the writing plan below has been executed —
+> and superseded — by the completed documentation tree (`doc/StartHere.md`,
+> `doc/user/`, `doc/developer/`). Read it as history of how the corpus was
+> planned, not as a description of the current page set (which now also
+> includes `PythonEnvironments.md`, `TestingAndPackaging.md` and
+> `PythonTaskRunnerInternals.md`).
 
 ## Artifact inventory
 

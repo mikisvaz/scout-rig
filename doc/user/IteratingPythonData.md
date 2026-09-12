@@ -34,6 +34,16 @@ ScoutPython provides three helpers:
 | `iterate_index` | Yields each element | Indexable sequences (lists, tuples) |
 | `collect` | Ruby Array | When you need all elements in an array |
 
+Iteration ends when Python raises `StopIteration`; that exception is
+handled internally and never reaches your block. Any *other* Python
+exception raised during iteration propagates to Ruby as a
+`PyCall::PyError`, and the progress bar (if any) is marked as errored.
+
+`iterate` is **lazy**: each element is pulled from Python only when the
+block asks for it, so an infinite or very large generator is not
+materialized up front. Break out of the block when you have enough
+elements (the Python side sees its next `__next__` never arrive).
+
 ## Typical usage
 
 ### iterate

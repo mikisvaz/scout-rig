@@ -4,6 +4,15 @@
 > documentation work. It may contain observations about implementation
 > history, design alternatives, and unresolved questions. It is supporting
 > material, not primary documentation.
+>
+> **Status note (2026-09-12):** this is the mapping that seeded the
+> documentation campaign. Two details are now historical: the repository
+> tree it sketches still shows `doc/Python.md` and `doc/PythonWorkflow.md`
+> (both were replaced by the current `doc/StartHere.md` + `doc/user/` +
+> `doc/developer/` structure), and `python/scout/workflow.py` is now known
+> to shadow the `python/scout/workflow/` package. Line counts are as of
+> the mapping date. Authoritative scope descriptions:
+> `doc/StartHere.md` and `doc/developer/Architecture.md`.
 
 ## What is scout-rig?
 

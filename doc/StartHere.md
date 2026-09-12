@@ -29,6 +29,12 @@ scout-rig to solve problems. They are organized around tasks, not classes.
   the Python `scout` package to run Scout workflows locally or remotely.
 - [Iterating Python Data](user/IteratingPythonData.md) — Traverse Python
   iterables from Ruby.
+- [Python Environments](user/PythonEnvironments.md) — How Python
+  environments relate to Scout, and the native-library hazards of embedding
+  Python inside a Ruby process.
+- [Testing and Packaging](user/TestingAndPackaging.md) — How to run the test
+  suite, which Python environment it needs, and how the gem and the Python
+  package are built.
 - [Cookbook](user/Cookbook.md) — Practical recipes combining multiple
   features.
 
@@ -45,6 +51,9 @@ design decisions behind scout-rig.
   integration, execution modes, threading, garbage collection.
 - [PythonWorkflow Internals](developer/PythonWorkflowInternals.md) —
   Metadata discovery, type mapping, CLI generation.
+- [Python Task Runner Internals](developer/PythonTaskRunnerInternals.md) —
+  The Python-side `scout.task` runner: docstring grammar, CLI dispatch,
+  serialization and exit codes.
 - [Data Conversion Internals](developer/DataConversionInternals.md) —
   Serialization pipeline, pickle/JSON, subprocess management.
 - [Design Principles](developer/DesignPrinciples.md) — Scout-rig coding
@@ -56,7 +65,9 @@ design decisions behind scout-rig.
 
 These are curated architectural investigations. They are **non-normative**:
 they may contain implementation history, abandoned ideas, and experimental
-observations. They are supporting material, not primary documentation.
+observations. They are supporting material, not primary documentation. Each
+one carries a status note pointing at the authoritative doc/ page where its
+conclusions have since been verified or corrected.
 
 ## Prerequisites
 
@@ -65,11 +76,20 @@ concepts like TSV data structures, file I/O, command execution, logging,
 and path resolution, see the
 [scout-essentials documentation](https://github.com/mikisvaz/scout-essentials/blob/main/doc/StartHere.md).
 
+## Known issues and improvements
+
+[Improvements](Improvements.md) tracks actionable code-level defects and
+gaps (bugs, outdated behaviour, architecture concerns, missing features).
+Each item's status was re-verified against HEAD `290ee22` during the
+2026-09 documentation campaign, and names the Cortex artifact carrying the
+probe evidence (`artifacts/scout-rig/subsys/*`).
+
 ## Documentation philosophy
 
 - **User documentation** teaches how to build with scout-rig.
 - **Developer documentation** explains how scout-rig itself is built.
 - **Research artifacts** preserve the reasoning behind the current design.
+- **Improvements** records verified defects to fix next.
 
 Each layer becomes progressively more detailed while remaining focused on
 its intended audience.

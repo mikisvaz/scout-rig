@@ -37,7 +37,7 @@ ScoutPython provides a progression of execution modes:
 | `run` | Medium | Synchronized | General-purpose default |
 | `run_simple` | Low | Synchronized | Already initialized, need speed |
 | `run_direct` | Lowest | None | Quick one-liners, no synchronization |
-| `run_threaded` | High | Dedicated thread | Background work, avoiding GIL contention |
+| `run_threaded` | High | Dedicated thread | Background work — but see the threading caveats in *Common mistakes* before choosing it |
 | `run_log` | Medium | Synchronized | When you need to capture Python output |
 
 ### Imports
@@ -182,6 +182,21 @@ Each `binding_run` creates a fresh scope. This is useful when importing
 large frameworks (like PyTorch) that you don't want polluting the global
 namespace.
 
+Two details worth knowing:
+
+- `binding_run` accepts an optional first argument but ignores it; a fresh
+  binding is always created. Passing an existing `Binding` will not reuse
+  it.
+- To reuse a scope across several calls, create the binding yourself with
+  `ScoutPython.new_binding` and run blocks on it with `instance_exec`;
+  imports made on that instance persist between calls:
+
+```ruby
+b = ScoutPython.new_binding
+b.instance_exec { pyimport :math }
+b.instance_exec { math.sqrt(16) }   # => 4.0 — math is still available
+```
+
 ## Common mistakes
 
 ### Using `run_direct` in a multi-threaded context
@@ -190,11 +205,35 @@ namespace.
 at the same time, you may get a GIL-related crash. Use `run` or `run_simple`
 in multi-threaded code.
 
+### Mixing `run_threaded` with the other modes
+
+Once `run_threaded` has run, PyCall effectively belongs to the background
+thread, and calling any of the main-thread modes afterwards — including
+`run` and `run_simple` — crashes the process with a segmentation fault. The
+same happens in the other direction (`run` first, then `run_threaded`), and
+even when a second Ruby thread simply calls `run`. Pick one mode family per
+process: either the main-thread modes, or `run_threaded`, never both. See
+[ScoutPython Internals](../developer/ScoutPythonInternals.md) for details.
+
+### Expecting `run_threaded` to survive an exception
+
+If the block raises, the exception is logged and re-raised inside the
+background thread, which kills it. The Ruby thread waiting for the result
+then blocks forever. A failing `run_threaded` block is not recoverable in
+the current implementation: treat it as fatal for the process, or wrap your
+Python code so exceptions are returned as values instead.
+
 ### Forgetting to call `stop_thread`
 
-If you use `run_threaded`, the background thread stays alive. Always call
-`ScoutPython.stop_thread` when you're done to avoid resource leaks and
-ensure clean shutdown.
+If you use `run_threaded`, the background thread stays alive. Call
+`ScoutPython.stop_thread` when you're done.
+
+Caveat, verified at HEAD: `stop_thread` does not currently guarantee a
+clean exit. After threaded use the process either hangs in the shutdown
+path or segfaults on the next PyCall call, whether or not `stop_thread` was
+called. If you can, prefer the main-thread modes (`run`) or the subprocess
+helpers ([Scripting Python](ScriptingPython.md)) for long-lived processes;
+see [ScoutPython Internals](../developer/ScoutPythonInternals.md).
 
 ### Importing heavy modules inside hot loops
 
@@ -220,6 +259,8 @@ end
   data structures to Python.
 - [Scripting Python](ScriptingPython.md) — Running full Python scripts with
   variable injection.
+- [Python Environments](PythonEnvironments.md) — How the Python environment
+  is selected, and why embedded Python shares native libraries with Ruby.
 - [ScoutPython Internals](../developer/ScoutPythonInternals.md) — How the
   execution modes are implemented.
 - [Running Commands](https://github.com/mikisvaz/scout-essentials/blob/main/doc/user/RunningCommands.md)

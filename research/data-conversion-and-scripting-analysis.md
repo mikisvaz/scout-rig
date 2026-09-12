@@ -1,6 +1,16 @@
 # Data Conversion and Scripting Analysis
 
 > **Non-normative.** Investigation artifact.
+>
+> **Status note (2026-09-12):** written before the verification campaign.
+> The authoritative account of `script()` error reporting (last traceback
+> line included, full traceback at DEBUG) and the pickle/JSON result
+> loading is `doc/user/ScriptingPython.md` and
+> `doc/developer/DataConversionInternals.md`, with evidence in the Cortex
+> artifact `scout-rig/subsys/data-conversion.md`. Notably this analysis
+> predates two verified findings: the `python-pickle` gem fails on
+> integers >= 256 and on negatives, and `script()`/`run_file` clobber
+> `PYTHONPATH`.
 
 ## Overview
 

@@ -29,6 +29,11 @@ Base Python dependencies:
 - `numpy`
 - `pandas`
 
+Both are imported at module import time (`import scout` fails outright if
+either is missing). `requests` is also needed for
+`scout.workflow.remote`, but it is **not** an optional import there — see
+"Remote workflow support" below.
+
 Optional dependencies:
 
 - `requests` for the remote workflow client
@@ -57,6 +62,16 @@ For remote workflow support:
 For rich object inspection:
 
     pip install "scout-rig[inspect] @ git+https://github.com/mikisvaz/scout-rig.git@main#subdirectory=python"
+
+## Remote workflow support
+
+`scout.workflow.remote` does `import requests` at module level, so the
+module cannot even be imported without `requests` installed — the `[remote]`
+extra only documents the dependency, it does not make the import optional.
+`import scout` itself does not pull `requests` in, so a plain
+`pip install scout-rig` works for local workflow use and only
+`from scout.workflow.remote import ...` fails with
+`ModuleNotFoundError: No module named 'requests'`.
 
 ## Quick example
 
@@ -91,6 +106,15 @@ That separation is intentional:
 - Ruby remains responsible for workflow execution and PythonWorkflow integration
 - Python provides helper functions and a convenient development interface
 
+## Version and build artifacts
+
+The package version in `pyproject.toml` currently tracks the repository
+separately from the Ruby gem: at HEAD the gem is at `0.2.6` while
+`pyproject.toml` still says `0.2.4`. `python/build/lib/scout/` and
+`python/scout_rig.egg-info/` are untracked leftovers of an earlier build
+(`python/.gitignore` covers both); remove them before packaging so the
+stale copies cannot be picked up.
+
 ## Package layout
 
 - `scout.__init__` - TSV helpers, path helpers, workflow execution helpers
@@ -98,8 +122,27 @@ That separation is intentional:
 - `scout.workflow` - local workflow wrapper
 - `scout.workflow.remote` - remote workflow client
 
+Note that `scout.workflow` is a *module* (`workflow.py`) while
+`scout.workflow.remote` lives in a sibling directory of the same name
+(`workflow/remote.py`). Python resolves the name `scout.workflow` to the
+module, and a module cannot have submodules, so
+`from scout.workflow.remote import ...` currently fails with
+`ModuleNotFoundError: No module named 'scout.workflow.remote';
+'scout.workflow' is not a package` (verified on Python 3.12 and 3.13).
+Load the file explicitly if you need it before the layout is fixed, e.g.:
+
+    import importlib.util, pathlib
+    p = pathlib.Path(scout.__file__).parent / "workflow" / "remote.py"
+    spec = importlib.util.spec_from_file_location("scout.workflow.remote", p)
+    remote = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(remote)
+
 ## Running a simple import test
 
 From the repository root:
 
     PYTHONPATH=python python -c "import scout; print(scout.__file__)"
+
+Importing from a copy of the repository root makes `scout.cmd()` resolve
+`Rbbt.find(:lib)` to that checkout; from an unrelated directory the Ruby
+lookup falls back to its own root (returning `/` when nothing matches).

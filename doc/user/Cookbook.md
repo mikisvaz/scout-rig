@@ -248,11 +248,21 @@ print(df.head())
 
 ### Running a remote Scout workflow from Python
 
-```python
-from scout.workflow.remote import RemoteWorkflow
+The remote client is `python/scout/workflow/remote.py`, but `scout.workflow`
+is a module, not a package, so the ordinary import path is broken at HEAD:
 
-wf = RemoteWorkflow('http://localhost:1900/Baking')
-print(wf.tasks())
+```python
+# `from scout.workflow.remote import RemoteWorkflow` fails:
+# ModuleNotFoundError: No module named 'scout.workflow.remote';
+# 'scout.workflow' is not a package
+import importlib.util
+spec = importlib.util.spec_from_file_location(
+    'scout.workflow.remote', 'python/scout/workflow/remote.py')
+remote = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(remote)
+
+wf = remote.RemoteWorkflow('http://localhost:1900/Baking')
+print(wf.tasks)          # attribute, not a method
 
 step = wf.job('bake_muffin_tray', add_blueberries=True)
 step.wait()
@@ -319,3 +329,9 @@ PYTHONPATH=python python -c "import scout; print(scout.__file__)"
 - [Scripting Python](ScriptingPython.md) — Script facility.
 - [Defining Python Tasks](DefiningPythonTasks.md) — Python task definition.
 - [Driving Workflows from Python](DrivingWorkflowsFromPython.md) — Python-side usage.
+- [Iterating Python Data](IteratingPythonData.md) — Traversing Python
+  iterables (the progress-bar recipes above).
+- [Python Environments](PythonEnvironments.md) — Choosing the Python
+  environment, and when the subprocess route avoids native-library conflicts.
+- [Testing and Packaging](TestingAndPackaging.md) — Building the gem and
+  the Python package.

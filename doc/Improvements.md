@@ -4,7 +4,13 @@ This document lists actionable recommendations for code improvements in
 scout-rig, discovered during the documentation investigation. Items are
 categorized by type and marked with a status.
 
-Status legend: ☐ Open · ✓ Resolved
+Status legend: ☐ Open · ✓ Resolved · ◐ Partially resolved ·
+● Verified open (confirmed at HEAD, no code change yet) ·
+✗ Withdrawn (premise disproved by probe)
+
+Statuses below were reconciled in the 2026-09-12 documentation-completion
+campaign against the probe evidence recorded in the Cortex artifacts under
+`scout-rig/subsys/`. Each item names the artifact that carries the evidence.
 
 ---
 
@@ -12,7 +18,8 @@ Status legend: ☐ Open · ✓ Resolved
 
 ### B1. Unused `err` variable in `read_python_metadata`
 
-**Status:** ☐ Open
+**Status:** ● Verified open — and the `raise` is dead code in practice
+(evidence: `scout-rig/subsys/pythonworkflow.md`)
 
 **Location:** `lib/scout/workflow/python/task.rb`
 
@@ -45,7 +52,12 @@ end
 
 ### B2. `at_exit` hook kills all non-main threads
 
-**Status:** ☐ Open
+**Status:** ● Verified open — confirmed and worse than described: killing
+foreign threads reproduced directly, and the threaded path never exits
+cleanly (hang or segfault), with or without `stop_thread` (evidence:
+`scout-rig/subsys/python-bridge.md`; user-facing consequences documented in
+[Running Python from Ruby](user/RunningPythonFromRuby.md) and
+[ScoutPython Internals](developer/ScoutPythonInternals.md))
 
 **Location:** `lib/scout/python/run.rb` — `init_scout`
 
@@ -79,7 +91,11 @@ end
 
 ### B3. `binding_run` ignores its `binding` parameter
 
-**Status:** ☐ Open
+**Status:** ● Verified open — confirmed in code and by probe; documented
+as actual behaviour (parameter ignored, `new_binding` always used) in
+[Running Python from Ruby](user/RunningPythonFromRuby.md), with the
+`new_binding` + `instance_exec` reuse pattern as the workaround (evidence:
+`scout-rig/subsys/python-bridge.md`)
 
 **Location:** `lib/scout/python.rb`
 
@@ -104,7 +120,9 @@ end
 
 ### B4. Dead code: `save_inputs` in Python `workflow.py`
 
-**Status:** ☐ Open
+**Status:** ● Verified open — still a `return`-only stub at HEAD, never
+called anywhere in `python/`, `lib/`, `test/` or `Rakefile` (evidence:
+`scout-rig/subsys/python-package.md`)
 
 **Location:** `python/scout/workflow.py`
 
@@ -126,7 +144,9 @@ stub to avoid confusion.
 
 ### O1. No metadata caching
 
-**Status:** ☐ Open
+**Status:** ● Verified open — confirmed; ~0.42–0.48 s per registration,
+interpreter startup dominating, linear in file count (evidence:
+`scout-rig/subsys/pythonworkflow.md`)
 
 **Location:** `lib/scout/workflow/python/task.rb`
 
@@ -145,10 +165,15 @@ definition time, which can be slow.
 
 ### O2. `process_paths` called multiple times without deduplication
 
-**Status:** ☐ Open
+**Status:** ● Verified open — refined: main-thread modes append the Scout
+directory once per `run` (8→9→10 over three calls); `run_threaded` is
+stable because `init_thread` only re-runs `process_paths` when recreating
+the thread (evidence: `scout-rig/subsys/python-bridge.md`; quantified in
+[ScoutPython Internals](developer/ScoutPythonInternals.md))
 
-**Check:** Needs verification — `process_paths` is called in `init_scout`,
-`run_simple`, and `init_thread`. If `add_paths` or `Scout.python.find_all`
+*(Verified — see the status above.)* `process_paths` is called in
+`init_scout`, `run_simple`, and `init_thread`. If `add_paths` or
+`Scout.python.find_all`
 produces overlapping paths, they may accumulate as duplicates in
 `sys.path`.
 
@@ -157,7 +182,7 @@ already in `sys.path` before appending.
 
 ### O3. `info` command may be outdated (scout-ai cross-reference)
 
-**Status:** ☐ Open
+**Status:** ☐ Open (out of scope for this repository — scout-ai issue)
 
 This is a scout-ai issue, not a scout-rig issue. Listed here because
 scout-rig's documentation references scout-ai's provenance system. See
@@ -169,9 +194,14 @@ scout-rig's documentation references scout-ai's provenance system. See
 
 ### A1. `script()` exception handling
 
-**Status:** ☐ Open
+**Status:** ◐ Partially resolved — narrower than described: the *last*
+traceback line is already embedded in the exception message, and the full
+traceback reaches the Scout log at DEBUG severity. Documented in
+[Scripting Python](user/ScriptingPython.md) and
+[Data Conversion Internals](developer/DataConversionInternals.md)
+(evidence: `scout-rig/subsys/data-conversion.md`)
 
-**Location:** `lib/sccript/script.rb`
+**Location:** `lib/scout/python/script.rb`
 
 When `script()` calls a Python subprocess that errors, the error is raised
 as `ConcurrentStreamProcessFailed`. The current error message does not
@@ -182,7 +212,11 @@ message.
 
 ### A2. Return value decoding ambiguity
 
-**Status:** `return` field in metadata is ambiguous
+**Status:** ● Verified open — confirmed end-to-end (`"[1, 2, 3]"` decodes
+to Ruby `[1, 2, 3]`, `"1"` to `1`); documented as a decoding caveat in
+[PythonWorkflow Internals](developer/PythonWorkflowInternals.md) and
+[Defining Python Tasks](user/DefiningPythonTasks.md) (evidence:
+`scout-rig/subsys/pythonworkflow.md`)
 
 **Location:** `lib/scout/workflow/python/task.rb`
 
@@ -195,7 +229,12 @@ or respect the declared return type strictly during decoding.
 
 ### A3. List input comma-split ambiguity
 
-**Status:** ☐ Open
+**Status:** ● Verified open — confirmed, plus two undocumented siblings:
+an existing-file check shadows a literal comma-separated value (file lines
+win), and bare `-`-prefixed elements break argparse (exit 2). All
+documented in [Defining Python Tasks](user/DefiningPythonTasks.md) and
+[PythonWorkflow Internals](developer/PythonWorkflowInternals.md) (evidence:
+`scout-rig/subsys/pythonworkflow.md`)
 
 **Location:** `lib/scout/workflow/python/inputs.rb`
 
@@ -214,9 +253,12 @@ the string looks like a file path and read it as a list file.
 
 ### A4. `path` return type maps to `:string`
 
-**Status:** ☐ Open
+**Status:** ● Verified open — confirmed: input `path` maps to `:file` but
+return `path` maps to `:string`; the asymmetry is documented as a known
+issue in [PythonWorkflow Internals](developer/PythonWorkflowInternals.md)
+(evidence: `scout-rig/subsys/pythonworkflow.md`)
 
-**Location:** `lib/scout/workflow downstream/python/task.rb`
+**Location:** `lib/scout/workflow/python/task.rb`
 
 When a Python function's return annotation is `pathlib.Path`, it maps to
 Scout `:string` return type:
@@ -239,7 +281,15 @@ adding a separate `:path` return type.
 
 ### M1. No streaming Python iterator support
 
-**Status:** ☐ Open
+**Status:** ✗ Withdrawn — the premise is false. `iterate` *is* lazy: a
+generator's `__next__` is called only when the Ruby block asks for the
+next element (probe: interleaved pull/consume log, 2026-09-12), so
+streaming already exists today via `iterate`; documented in
+[Iterating Python Data](user/IteratingPythonData.md)
+
+*(The original description below is inaccurate — see the status above:
+`iterate` pulls elements lazily, one per block iteration, and is not
+verified to materialize anything up front.)*
 
 The `iterate` helper collects all elements by default. There is no way to
 stream elements one at a time from a Python generator to Ruby without
@@ -250,7 +300,13 @@ are produced by the Python generator.
 
 ### M2. No Python-side documentation for the `scout` package
 
-**Status:** ☐ Open
+**Status:** ✓ Resolved (by documentation) — `python/README.md` plus
+[Driving Workflows from Python](user/DrivingWorkflowsFromPython.md) and
+[Defining Python Tasks](user/DefiningPythonTasks.md) now cover the Python
+API, and [Python Task Runner Internals](developer/PythonTaskRunnerInternals.md)
+documents the docstring grammar and CLI output conventions. The suggested
+`python/docs/` directory was not created; the existing pages were extended
+instead (evidence: `scout-rig/subsys/python-package.md`)
 
 The Python `scout` package has a `python/README.md` but no user-facing
 documentation beyond that. The Python-side API (scout.tsv, scout.save_tsv,
@@ -260,6 +316,20 @@ scout.cmd, scout.Workflow) is not documented in a structured way.
 documentation to cover the Python API in more detail.
 
 ### M3. No integration test for Ruby→Python→Ruby round-trip
+
+**Status:** ◐ Partially resolved — stale in both directions. *Covered at
+HEAD*: define a Python task, run it, verify the result
+(`test/scout/workflow/test_python.rb#test_file`); TSV→DataFrame→TSV
+round-trip (`test/scout/python/test_util.rb#test_tuple`). *Still
+missing*: multi-function file task creation, remote workflow client
+tests, threaded execution + GC tests. Note the "existing tests" list
+below is itself wrong for `test_run.rb`: its `run_threaded` test is
+`__test_run_threaded` (disabled), so that file runs zero tests
+(evidence: `scout-rig/subsys/packaging-tests.md`; see
+[Testing and Packaging](user/TestingAndPackaging.md))
+
+*(The list below predates the campaign; the verified picture is in the
+status above and in [Testing and Packaging](user/TestingAndPackaging.md).)*
 
 **Existing tests cover:**
 - `test_run.rb` — `run_threaded` basic test
@@ -284,7 +354,12 @@ documentation to cover the Python API in more detail.
 
 ### D1. Old documentation files should be removed
 
-**Status:** ☐ Open
+**Status:** ✓ Resolved in the tree, ☐ gemspec remnant — both files are
+deleted at HEAD, and the last stale README links were fixed in this
+campaign. The checked-in `scout-rig.gemspec` still lists both deleted
+files, so a plain `gem build` fails; `rake gemspec` regenerates the list
+and fixes the build (evidence: `scout-rig/subsys/packaging-tests.md`;
+see [Testing and Packaging](user/TestingAndPackaging.md))
 
 The old flat documentation files `doc/Python.md` and `doc/PythonWorkflow.md`
 should be removed once the new documentation is finalized, as they are
@@ -295,7 +370,12 @@ in the new documentation. Review before deleting.
 
 ### D2. Cross-reference validation
 
-**Status:** ☐ Open
+**Status:** ☐ Open — no automated link validation exists (no CI, no link
+checker, no rake task). A full manual sweep of every relative markdown
+link (27 files — README.md, doc/, research/ and python/README.md; 122
+links) plus the remote scout-essentials/scout-ai URLs was run at the end
+of the documentation campaign and found no dead links; the sweep is not repeatable automatically until this item is
+addressed (evidence: `scout-rig/subsys/doc-corpus.md`)
 
 The documentation contains cross-references to scout-essentials and
 scout-ai GitHub URLs. These should be validated periodically to ensure
@@ -306,10 +386,20 @@ they don't break.
 ## Priority recommendations
 
 1. **B1 (err variable)** — Simple fix, immediate clarity improvement.
+   (Verified: the `raise` is currently unreachable; `ProcessFailed` from
+   `CMD.cmd` fires first — see the B1 status above.)
 2. **B3 (binding_run)** — Simple fix, corrects a silent bug.
 3. **B2 (at_exit kills all threads)** — Important for multi-threaded apps
-   using ScoutPython.
+   using ScoutPython. (Verified: also blocks clean exit of the threaded
+   path altogether.)
 4. **A2 (return decoding ambiguity)** — Could cause subtle data corruption
-   if a string return is valid JSON.
+   if a string return is valid JSON. (Verified end-to-end.)
 5. **M3 (integration tests)** — The test suite is sparse. Adding round-trip
-   integration tests would increase confidence.
+   integration tests would increase confidence. (Partially covered —
+   see the M3 status above.)
+6. **D1 (gemspec remnant)** — Regenerate `scout-rig.gemspec` with
+   `rake gemspec` so it stops listing `doc/Python.md` and
+   `doc/PythonWorkflow.md`; the stale list is the only remaining blocker
+   for a plain `gem build`.
+7. **D2 (link validation)** — Wire the relative-link sweep used at the end
+   of the campaign into a rake task so it runs before every release.

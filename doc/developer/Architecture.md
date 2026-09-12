@@ -185,6 +185,10 @@ Python code
 - `numpy` — Required for numpy2ruby and array conversions.
 - `pandas` — Required for TSV↔DataFrame conversion and TSV I/O.
 - `requests` — Optional, for remote workflow client.
+- `torch` — Not required by the library, but the one enabled test in
+  `test/scout/test_python.rb` (`test_binding`) imports it, so a plain
+  `rake test` errors out in an environment without it. See
+  [Testing and Packaging](../user/TestingAndPackaging.md).
 
 ### Internal dependencies (Ruby → Ruby)
 

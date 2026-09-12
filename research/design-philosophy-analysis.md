@@ -1,6 +1,12 @@
 # Design Philosophy and Patterns Analysis
 
 > **Non-normative.** Investigation artifact.
+>
+> **Status note (2026-09-12):** written before the verification campaign.
+> Its anti-pattern list (unused `err`, dead code, ignored `binding`
+> parameter, `sys.path` duplication) was confirmed and reconciled in
+> `doc/Improvements.md` (items B1, B4, B3, O2); the normative pattern
+> catalogue is `doc/developer/DesignPrinciples.md`.
 
 ## Overview
 

@@ -1,6 +1,13 @@
 # PythonWorkflow Analysis
 
 > **Non-normative.** Investigation artifact.
+>
+> **Status note (2026-09-12):** written before the verification campaign;
+> its `err`-variable observation corresponds to Improvements B1 (verified:
+> the `raise` is unreachable because `ProcessFailed` fires first). The
+> authoritative account of metadata discovery, type mapping and CLI
+> generation is `doc/developer/PythonWorkflowInternals.md`, with evidence
+> in the Cortex artifact `scout-rig/subsys/pythonworkflow.md`.
 
 ## Overview
 

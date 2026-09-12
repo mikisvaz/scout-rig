@@ -1,6 +1,15 @@
 # Python `scout` Package Analysis
 
 > **Non-normative.** Investigation artifact.
+>
+> **Status note (2026-09-12):** written before the verification campaign.
+> The authoritative account of the package is `python/README.md`,
+> `doc/user/DrivingWorkflowsFromPython.md` and
+> `doc/developer/PythonTaskRunnerInternals.md`, with evidence in the
+> Cortex artifact `scout-rig/subsys/python-package.md`. This analysis
+> predates the verified finding that `python/scout/workflow.py` shadows
+> the `python/scout/workflow/` package, which breaks the remote client
+> import on Python 3.12/3.13.
 
 ## Overview
 
