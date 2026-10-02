@@ -247,9 +247,9 @@ Details of the per-meta declaration loop (verified):
 2. Otherwise, `python_task_dir[task_name].find_with_extension('py')`, and
    the same existence check runs on the resolved path.
 
-`python_task_dir` defaults to `Scout.python.task.find`, which returns the
-first existing `python/task` directory in the Scout pathmap order and
-otherwise falls back to the user path (`~/.scout/python/task`) even when it
+`python_task_dir` defaults to `Scout.python.tasks.find`, which returns the
+first existing `python/tasks` directory in the Scout pathmap order and
+otherwise falls back to the user path (`~/.scout/python/tasks`) even when it
 does not exist.
 
 ## Phase 4: Execution

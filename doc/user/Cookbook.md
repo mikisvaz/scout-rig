@@ -78,7 +78,7 @@ end
 ### Basic Python task
 
 ```python
-# python/task/greet.py
+# python/tasks/greet.py
 import scout
 
 def hello(name: str, excited: bool = False) -> str:
@@ -111,7 +111,7 @@ puts job.run
 ### Task accepting a file input
 
 ```python
-# python/task/count_lines.py
+# python/tasks/count_lines.py
 import scout
 from pathlib import Path
 
@@ -143,7 +143,7 @@ puts job.run
 ### Task accepting a list input
 
 ```python
-# python/task/join_strings.py
+# python/tasks/join_strings.py
 import scout
 
 def join_strings(items: list[str], separator: str = ", ") -> str:
@@ -175,7 +175,7 @@ puts job.run  # => "a, b, c"
 ### Multi-function Python file
 
 ```python
-# python/task/math_ops.py
+# python/tasks/math_ops.py
 import scout
 
 def add(a: int, b: int) -> int:
@@ -212,7 +212,7 @@ module ToolsWF
   self.name = 'Tools'
 
   # Load all .py files from a directory
-  PythonWorkflow.load_directory(self, Path.setup("python/task"))
+  load_python_tasks
 end
 ```
 
@@ -289,7 +289,7 @@ print(result)
 ### Inspecting Python task metadata
 
 ```bash
-python python/task/greet.py --scout-metadata
+python python/tasks/greet.py --scout-metadata
 ```
 
 Output (formatted):
@@ -309,11 +309,11 @@ Output (formatted):
 
 ```bash
 # Single function
-python python/task/greet.py --name World --excited
+python python/tasks/greet.py --name World --excited
 
 # Multi-function file
-python python/task/math_ops.py add --a 3 --b 4
-python python/task/math_ops.py multiply --a 3.0 --b 4.0
+python python/tasks/math_ops.py add --a 3 --b 4
+python python/tasks/math_ops.py multiply --a 3.0 --b 4.0
 ```
 
 ### Verifying Python package import

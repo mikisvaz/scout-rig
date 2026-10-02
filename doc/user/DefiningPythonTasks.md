@@ -47,7 +47,7 @@ Python docstring                             →  Task description + input help
 
 ### Step 1: Write the Python task file
 
-Create a Python file (e.g., `python/task/greet.py`):
+Create a Python file (e.g., `python/tasks/greet.py`):
 
 ```python
 import scout
@@ -330,9 +330,9 @@ Caveats (verified):
 ## Task file discovery
 
 By default, `python_task` looks for `.py` files via the Scout Path subsystem:
-`python_task_dir` defaults to `Scout.python.task.find`, which resolves the
-first existing `python/task` directory in the usual Scout search order (the
-workflow's own `python/task` first, then the user's `~/.scout/python/task`).
+`python_task_dir` defaults to `Scout.python.tasks.find`, which resolves the
+first existing `python/tasks` directory in the usual Scout search order (the
+workflow's own `python/tasks` first, then the user's `~/.scout/python/tasks`).
 If none exists, the default falls back to the user path even when it does not
 exist. You can override this:
 

@@ -9,7 +9,7 @@ module PythonWorkflow
   attr_accessor :python_task_dir
 
   def python_task_dir
-    @python_task_dir ||= Scout.python.task.find
+    @python_task_dir ||= Scout.python.tasks.find
   end
 
   def python_task_dir=(path)
@@ -38,7 +38,7 @@ module PythonWorkflow
 
     Kernel.const_set workflow_name, workflow
 
-    path = Scout.python.task if path.nil?
+    path = Scout.python.tasks if path.nil?
 
     workflow.python_task_dir = path
     path.glob_names("*.py").each do |name|
