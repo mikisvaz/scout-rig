@@ -1,17 +1,55 @@
 import argparse
 import inspect
 import json
+import os
 import re
 import sys
 from pathlib import Path
 from typing import get_origin, get_args, Union, List
 import atexit
+import runpy
+import traceback
+
+from scout.task_errors import ScoutTaskError
 
 __all__ = ["task", "describe_function"]
 
 # registry to hold tasks defined via scout.task in a module
 _SCOUT_TASK_REGISTRY = []  # list of (func, meta)
 _SCOUT_DEFER_REGISTERED = set()
+_SCOUT_METADATA_BATCH = False
+
+
+def _scout_metadata_files(files):
+    """Collect per-file task metadata in one interpreter process."""
+    results = []
+    from scout import runner as task_runner
+    for filename in files:
+        task_runner._SCOUT_TASK_REGISTRY.clear()
+        original_path = list(sys.path)
+        original_argv = list(sys.argv)
+        original_batch = task_runner._SCOUT_METADATA_BATCH
+        sys.path.insert(0, str(Path(filename).resolve().parent))
+        try:
+            # Preserve __main__ conditionals without installing deferred CLI execution.
+            task_runner._SCOUT_METADATA_BATCH = True
+            sys.argv = [filename, "--scout-metadata"]
+            runpy.run_path(filename, run_name="__main__")
+        finally:
+            task_runner._SCOUT_METADATA_BATCH = original_batch
+            sys.path[:] = original_path
+            sys.argv[:] = original_argv
+        results.append({
+            "file": str(Path(filename).resolve()),
+            "metadata": [meta for (_func, meta) in task_runner._SCOUT_TASK_REGISTRY],
+        })
+    print(json.dumps(results))
+
+
+if __name__ == "__main__" and "--scout-metadata-files" in sys.argv:
+    flag_index = sys.argv.index("--scout-metadata-files")
+    _scout_metadata_files(sys.argv[flag_index + 1:])
+    sys.exit(0)
 
 
 def _python_type_to_string(ann) -> str:
@@ -351,7 +389,7 @@ def _write_output(out_path: str, data):
         path.write_text(str(data))
 
 
-def _run_cli(func, meta: dict):
+def _run_cli(func, meta: dict, error_file=None):
     # single-function CLI metadata
     if "--scout-metadata" in sys.argv:
         print(json.dumps(meta))
@@ -372,7 +410,22 @@ def _run_cli(func, meta: dict):
         val = args.get(name)
         kwargs[name] = val
 
-    result = func(**kwargs)
+    try:
+        result = func(**kwargs)
+    except ScoutTaskError as exc:
+        if error_file is not None:
+            payload = {
+                "version": 1,
+                "error": "ScoutTaskError",
+                "message": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+            destination = Path(error_file)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(destination.name + ".tmp")
+            temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(destination)
+        raise
 
     if out_path:
         _write_output(out_path, result)
@@ -433,7 +486,7 @@ def task(func=None, **options):
     # If the defining module is executed as a script, defer execution until
     # after the module is fully imported by using an atexit handler. This
     # allows multiple scout.task(...) calls to register multiple functions.
-    if mod and getattr(mod, "__name__", None) == "__main__":
+    if mod and getattr(mod, "__name__", None) == "__main__" and not _SCOUT_METADATA_BATCH:
         mod_id = id(mod)
         if mod_id not in _SCOUT_DEFER_REGISTERED:
             _SCOUT_DEFER_REGISTERED.add(mod_id)
@@ -507,7 +560,14 @@ def task(func=None, **options):
                         # remove the first positional argument (function name)
                         sys.argv.pop(1)
 
-                    code = _run_cli(chosen[0], chosen[1])
+                    error_file = None
+                    if "--scout-error-file" in sys.argv:
+                        error_index = sys.argv.index("--scout-error-file")
+                        if error_index + 1 < len(sys.argv):
+                            error_file = sys.argv[error_index + 1]
+                            del sys.argv[error_index:error_index + 2]
+
+                    code = _run_cli(chosen[0], chosen[1], error_file=error_file)
                     try:
                         sys.stdout.flush()
                     except Exception:
@@ -528,6 +588,7 @@ def task(func=None, **options):
                         pass
                 except Exception as e:
                     print(f"[scout.task] Error: {e}", file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
                     import os
                     os._exit(1)
 

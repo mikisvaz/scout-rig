@@ -80,6 +80,44 @@ omitted) and calls `python_task` for every `*.py` file found by
 - Only the directory given is scanned; there is no recursion into
   subdirectories (verified: `sub/one.py` is not registered).
 
+## Directory metadata loading
+
+`load_python_tasks(batch: false)` is the reusable directory loader. Its default
+is the established per-file path: each `*.py` task file is inspected by an
+individual metadata subprocess. With `batch: true`, it gathers all file
+metadata using one `--scout-metadata-files` runner process and passes the
+resulting metadata into task registration.
+
+`PythonWorkflow`'s extension hook does not preload tasks; it prepares the
+workflow to use Python tasks. Assigning `python_task_dir=` then loads that
+directory in batch mode, so the supported lifecycle is to define/extend the
+`Workflow` first, extend `PythonWorkflow` second, and assign the task directory
+afterward:
+
+```ruby
+module TestWF
+  extend Workflow
+end
+TestWF.extend PythonWorkflow
+TestWF.python_task_dir = Path.setup("python/tasks")
+```
+
+The setter must call `load_python_tasks`; there is no `load_tasks` method in
+this extension. `PythonWorkflow.load_directory(path, name, batch: false)` keeps
+its public per-file default; callers can request batch mode explicitly with
+`batch: true`. The extension hook's and setter's explicit batch selection does
+not change this API default.
+
+Batch runner execution sets each file's `__name__` to `__main__` and captures
+registrations, including registrations guarded by `if __name__ == '__main__'`.
+It reuses one interpreter for all files. A reproduced same-process caveat is
+that imported modules are cached: a task registered only as a shared-import
+side effect can be included for the first file but absent for a later file.
+This establishes that batch behavior is not fully equivalent to separate
+per-file processes; use the default per-file mode when isolation from shared
+module state is required. These notes describe tested behavior, not a claim
+that all stateful Python programs are supported equivalently.
+
 ## Phase 1: Metadata discovery
 
 ### read_python_metadata(file)

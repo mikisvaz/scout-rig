@@ -5,6 +5,8 @@ import tempfile
 import shutil
 import pandas
 import numpy
+from .task_errors import ScoutTaskError
+
 
 def cmd(cmd=None):
     if cmd is None:

@@ -351,10 +351,10 @@ end
 Or load all Python files from a directory at once:
 
 ```ruby
-PythonWorkflow.load_directory(MyWF, Path.setup("python/task"))
+PythonWorkflow.load_directory(Path.setup("python/task"), :MyWF)
 ```
 
-`load_directory` returns a new anonymous workflow module (it does not extend
+`load_directory` returns a new named workflow module registered as a constant (it does not extend
 the receiver) and registers one task per `scout.task`-decorated function
 across **every** `*.py` file in the directory. It takes a `Path` object, not
 a plain `String`; a `String` raises
@@ -371,6 +371,36 @@ warning).
 with `RuntimeError: Python task file not found: <file>`; the same message
 appears when the name resolves through `python_task_dir` but no `.py` file
 exists at the resolved path.
+
+### Loading a Python task directory
+
+To configure a workflow with a directory of Python task files, extend the
+Ruby workflow first and PythonWorkflow second, then assign the directory:
+
+```ruby
+module TestWF
+  extend Workflow
+end
+TestWF.extend PythonWorkflow
+TestWF.python_task_dir = Path.setup("python/tasks")
+```
+
+The extension hook does not preload tasks. Assigning `python_task_dir` loads
+the assigned directory using batch metadata discovery (one Python runner
+invocation for the directory). The lower-level
+`PythonWorkflow.load_directory(path, name, batch: true)` opts into the same
+batch mode. `load_directory(path, name)` defaults to `batch: false` and
+continues to discover metadata with one Python invocation per file. Use that
+default when per-file process isolation is needed; batch and per-file loading
+are not guaranteed to be semantically equivalent for Python files with
+process-global state or shared imports.
+
+Batch mode executes each task file as `__main__` to preserve registrations
+inside `if __name__ == '__main__'` blocks. The runner reuses one interpreter
+for the directory, so imported Python modules are cached across files. In
+particular, registrations performed only as a side effect of a shared import
+may not appear in later files' metadata. This behavior was reproduced by the
+workflow tests; choose default per-file loading if such imports are significant.
 
 ## Missing and optional inputs
 

@@ -46,6 +46,8 @@ module PythonWorkflow
         else
           argv << flag if val
         end
+      elsif val == ''
+        next
       else
         # For scalar inputs: if given a file path and the file exists, pass the path
         # as-is (the Python side can decide how to handle it). Keep quoting to

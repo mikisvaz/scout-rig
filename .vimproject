@@ -17,6 +17,8 @@ scout-rig=/$PWD filter="*" {
   docstring
 
   documentation
+
+  python_metadata
  }
  lib=lib {
   scout-rig.rb

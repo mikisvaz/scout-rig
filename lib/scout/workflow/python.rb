@@ -14,19 +14,35 @@ module PythonWorkflow
 
   def python_task_dir=(path)
     @python_task_dir = path
-    load_tasks
+    load_python_tasks(batch: true)
   end
 
-  def load_python_tasks
-    python_task_dir.glob_names('*.py').each do |name|
-      name = name.sub '.py', ''
-      Log.debug "Loading python task #{name}"
-      self.python_task name
+  def load_python_tasks(batch: true)
+    names = python_task_dir.glob_names('*.py')
+    metadata = if batch && names.any?
+                 files = names.map { |name| Open.realpath(python_task_dir[name].find_with_extension('py')) }
+                 PythonWorkflow.read_python_metadata_files(files)
+               else
+                 {}
+               end
+    names.each do |name|
+      task_name = name.sub '.py', ''
+      Log.debug "Loading python task #{task_name}"
+      file = Open.realpath(python_task_dir[task_name].find_with_extension('py'))
+      if batch
+        self.python_task task_name, file: file, metadata: metadata.fetch(file)
+      else
+        self.python_task task_name
+      end
     end
   end
 
+  def self.extended(workflow)
+    workflow.load_python_tasks(batch: true) if workflow.respond_to?(:load_python_tasks)
+    workflow
+  end
 
-  def self.load_directory(path = nil, workflow_name = nil)
+  def self.load_directory(path = nil, workflow_name = nil, batch: true)
     workflow = begin
                    m = Module.new
                    m.extend Workflow
@@ -36,15 +52,14 @@ module PythonWorkflow
                    m
                  end
 
-    Kernel.const_set workflow_name, workflow
+    Kernel.const_set(workflow_name || "PythonWorkflow", workflow)
 
     path = Scout.python.tasks if path.nil?
 
-    workflow.python_task_dir = path
-    path.glob_names("*.py").each do |name|
-      name = name.sub '.py', ''
-      workflow.python_task name
-    end
+    # Set directly so load_directory's batch option remains authoritative and
+    # directory tasks are registered exactly once.
+    workflow.instance_variable_set(:@python_task_dir, path)
+    workflow.load_python_tasks(batch: batch)
 
     workflow
   end
