@@ -224,6 +224,24 @@ same name; the last registration silently wins. The Python-side
 functions with the same name both appear in the JSON array), so which one
 wins is decided by whoever consumes the array last.
 
+### Result file extension
+
+Pass `extension:` to `python_task` to set the suffix on the Scout result path:
+
+```ruby
+python_task :network, extension: 'sif'
+```
+
+This sets a filename suffix only; it does not convert or validate the
+Python function's return value or make the result conform to a file format.
+For example, `json`, `tsv`, and `sif` can be used as suffixes, but `sif`
+does not imply special SIF-format support. If `extension:` is omitted (or
+`nil`), Scout's normal extension behavior for the task's result type applies.
+
+The option belongs to the Python task-file registration. If the file registers
+multiple functions, the same suffix is applied to each resulting Scout task;
+it cannot be set separately per function through that one `python_task` call.
+
 ## Docstring format
 
 Use Google-style docstrings for the best metadata extraction and CLI help:
