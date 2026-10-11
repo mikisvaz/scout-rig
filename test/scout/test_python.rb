@@ -108,6 +108,16 @@ def python_print():
   end
 
   def test_binding
+    # torch is an OPTIONAL test prerequisite (no lib/ code and no manifest
+    # requires it). It runs in-process through PyCall, so probe the embedded
+    # route. Omit only when genuinely absent; if the probe passes, the
+    # pyimport below still executes unconditionally and a broken PyCall
+    # binding still fails this test.
+    omit(
+      "torch not importable in the embedded (PyCall) interpreter: #{ScoutRig::Testing::Availability.python_modules_reason('torch', route: :embedded)}. " \
+      'Install torch or pin SCOUT_TEST_PYTHON to an interpreter that has it.'
+    ) unless ScoutRig::Testing::Availability.python_modules?('torch', route: :embedded)
+
     raised = false
     ScoutPython.binding_run do
       pyimport :torch

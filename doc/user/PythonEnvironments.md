@@ -48,7 +48,27 @@ consequences follow:
 - The environment must be correct *before* Scout starts. Scout does not
   install, activate or repair environments.
 - Whatever environment is selected, its native libraries become libraries
+  *of the Ruby process itself*.Concretely, PyCall resolves the interpreter by interrogating the `python`
+found on `PATH` (or `ENV['PYTHON']`), locates the matching `libpython`
+shared library and `dlopen`s it into the running Ruby process. Two
+consequences follow:
+
+- The environment must be correct *before* Scout starts. Scout does not
+  install, activate or repair environments.
+- Whatever environment is selected, its native libraries become libraries
   *of the Ruby process itself*.
+
+The subprocess route (`script()`, `run_file`, `python_task`) does not follow
+this selection at all: it spawns the literal command `python` from `PATH` and
+never reads `ENV['PYTHON']`. The two selections can therefore disagree, and
+`PyCall.init` additionally exports `PYTHONHOME` for the interpreter it
+embedded, which can break unrelated subprocess pythons. The test-only
+availability helpers can report the disagreement —
+`ScoutRig::Testing::Availability.python_routes_divergence_reason` returns
+`nil` when both routes resolve to the same interpreter and a sentence naming
+both resolutions otherwise; see
+[Testing and Packaging](TestingAndPackaging.md). The remedy is the same
+`bin`-first-on-`PATH` recipe described there.
 
 ### Embedded Python shares the Ruby process's native library namespace
 

@@ -150,7 +150,8 @@ module PythonWorkflow
           protocol_file = File.join(protocol_dir, 'controlled-error.json')
           invocation_argv = full_argv + ['--scout-error-file', protocol_file]
           begin
-            output = ScoutPython.run_file file, Shellwords.shelljoin(invocation_argv)
+            output = ScoutPython.run_file file, Shellwords.shelljoin(invocation_argv),
+              env: { 'SCOUT_JOB_FILES_DIR' => files_dir.to_s }
           rescue ProcessFailed
             controlled_error = PythonWorkflow.read_task_error(protocol_file)
             if controlled_error

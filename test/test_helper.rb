@@ -4,6 +4,11 @@ $LOAD_PATH.unshift(File.expand_path(File.dirname(__FILE__)))
 
 require 'scout'
 
+# Test-only availability probes (scout-rig testing support). Loaded here so
+# every test file can gate optional prerequisites with omit; NOT required by
+# any production entry point.
+require 'scout-rig/testing/availability'
+
 class Test::Unit::TestCase
 
   def assert_equal_path(path1, path2)

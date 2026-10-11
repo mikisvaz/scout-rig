@@ -66,12 +66,19 @@ Add scout-rig to your Ruby project (Gemfile or local checkout), then ensure Pyth
 ## Development and testing
 
 The repository tests itself with `rake test` (a `Rake::TestTask` over
-`test/**/test_*.rb`). Note that the suite needs a Python environment whose
-interpreter is reachable as `python` on `PATH` (both the in-process PyCall
-route and the `script()`/`run_file` subprocess route use it), and the one
-enabled test in `test/scout/test_python.rb` imports `torch`, so a plain
-`rake test` errors out unless the interpreter on `PATH` has `torch`
-installed. See [doc/user/TestingAndPackaging.md](doc/user/TestingAndPackaging.md)
+`test/**/test_*.rb`). The suite needs a Python environment whose interpreter
+is reachable as `python` on `PATH` (both the in-process PyCall route and the
+`script()`/`run_file` subprocess route use it). Optional test prerequisites
+such as `torch` are gated with scout-rig's opt-in availability probes
+(`require 'scout-rig/testing/availability'`), so a plain `rake test` reports
+an honest *omission* naming the missing module instead of erroring:
+
+```ruby
+omit("torch not importable: #{ScoutRig::Testing::Availability.python_modules_reason('torch', route: :embedded)}") \
+  unless ScoutRig::Testing::Availability.python_modules?('torch', route: :embedded)
+```
+
+See [doc/user/TestingAndPackaging.md](doc/user/TestingAndPackaging.md)
 for the full picture: interpreter selection via `PATH`/`PYTHON`, per-file
 prerequisites, individual test commands, and how to build the gem
 (`rake gemspec` then `rake build`) and the Python package.

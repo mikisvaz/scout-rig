@@ -77,6 +77,7 @@ expected to be present in the development or deployment environment.
 ```
 test/
 ├── test_helper.rb                     # shared setup: tmpdir, caches, teardown
+│                                      #   + require of the availability helpers
 ├── scout/
 │   ├── test_python.rb                 # ScoutPython core (mostly disabled, see below)
 │   └── python/
@@ -86,8 +87,11 @@ test/
 └── scout/workflow/
     ├── test_python.rb                 # python_task end-to-end (1 test)
     └── python/
-        └── test_task.rb               # read_python_metadata (1 test)
+        └── test_task.rb               # read_python_metadata + task behavior (15 tests)
 ```
+
+plus `test/scout-rig/testing/test_availability.rb` (30 tests) for the
+availability helpers described below.
 
 `Rake::TestTask` in the `Rakefile` uses `test.pattern = 'test/**/test_*.rb'`
 with `test.libs << 'lib' << 'test'`, so `rake test` runs every file matching
@@ -101,9 +105,11 @@ ruby -Ilib:test test/scout/python/test_util.rb
 `test_helper.rb` unshifts `../lib` and the `test/` directory onto
 `$LOAD_PATH`, isolates every test under `tmp/test_tmpdir` (`Open.rm_rf` in both
 `setup` and `teardown`, redirecting `TmpFile`, `Persist`, `Open.remote_cache`
-and `Workflow.directory` there), and quiets progress bars. It does **not**
-provide any Python-specific setup: there is no interpreter selection, no skip
-logic, and no `minitest`/`rspec` — the suite is plain `Test::Unit`.
+and `Workflow.directory` there), quiets progress bars, and — since the
+availability work — requires the opt-in test probes described below
+(`require 'scout-rig/testing/availability'`) so any test file can gate
+optional prerequisites. The suite is plain `Test::Unit`; there is no
+interpreter selection in the helper and no `minitest`/`rspec`.
 
 ### Test names prefixed with `_` are disabled, not skipped
 
@@ -112,42 +118,52 @@ renaming (`def _test_python`, `def __test_run_threaded`), which removes the
 method from the run entirely — it does not report as "omitted" or "pending".
 The visible numbers therefore hide how much is actually untested:
 
-- `test/scout/test_python.rb` declares 11 test methods; **10 are `_`-disabled**
+- `test/scout/test_python.rb` declares 10 test methods; **9 are `_`-disabled**
   and only `test_binding` runs.
 - `test/scout/python/test_run.rb` has 1 method (`__test_run_threaded`), so the
   file contributes **zero tests**.
-- The other four files are fully enabled: 4 + 2 + 1 + 1 tests.
+- The other four original files are fully enabled: 4 + 2 + 1 + 15 tests.
+- `test/scout-rig/testing/test_availability.rb` adds 30 tests for the
+  availability helpers themselves (see below).
 
-A full run therefore executes **9 tests**, not 20.
+A full run therefore executes **53 tests**.
 
 ### What `rake test` does today
 
 On a stock environment (system `python3`, `numpy` and `pandas` installed but
-no `torch`) the suite completes but **exits non-zero**:
+no `torch`) the suite completes and exits zero, reporting one **omission**:
 
 ```
-Error: test_binding(TestPython): PyCall::PyError: <class 'ModuleNotFoundError'>: No module named 'torch'
-  9 tests, 10 assertions, 0 failures, 1 errors, ...
-rake aborted!
+Omission: torch not importable in the embedded (PyCall) interpreter: <resolved
+python>: missing Python modules: torch (torch: ModuleNotFoundError: No module
+named 'torch'). Install torch or pin SCOUT_TEST_PYTHON to an interpreter that
+has it. [test_binding(TestPython)]
+  53 tests, 204 assertions, 0 failures, 0 errors, 0 pendings, 1 omissions, ...
 ```
 
 `test_binding` in `test/scout/test_python.rb` is the only enabled test in that
 file and it hard-requires `torch` (it calls `pyimport :torch` and
 `pyfrom :torch, import: ["nn"]`). `torch` is not a declared dependency of
-anything in the repository — it is an undeclared, undocumented environment
-prerequisite. This is why plain `rake test` aborts on a machine that has
-everything the README asks for.
+anything in the repository, so it is treated as an *optional test
+prerequisite*: the test opens with an availability gate (see
+[Optional-prerequisite gating with the availability helpers](#optional-prerequisite-gating-with-the-availability-helpers))
+that omits with a reason exactly when torch is missing from the interpreter
+the test would embed. Before the gate existed this same environment produced a
+hard `PyCall::PyError` error instead.
 
-Run the same suite with a `torch`-bearing interpreter on `PATH` and it goes
-green:
+Run the same suite with a `torch`-bearing interpreter on `PATH` and the test
+runs for real. The count below is the expected figure, derived by arithmetic
+from the observed torch-less run — not a captured run:
 
 ```
-PATH=/path/to/conda-env/bin:$PATH rake test
-  9 tests, 12 assertions, 0 failures, 0 errors, ...
+PATH=/path/to/conda-env/bin:$PATH rake test   # expected total, derived:
+  53 tests, 206 assertions, 0 failures, 0 errors, ...
 ```
 
-(12 rather than 10 assertions because `test_binding`'s two `assert`s now
-execute.)
+(206 rather than 204 assertions because `test_binding`'s two `assert`s execute
+when the gate passes.) The gate omits *only*: a probe that passes never
+suppresses the `pyimport` that follows, so a broken PyCall binding still
+fails the test.
 
 ### Python interpreter selection for the suite
 
@@ -190,8 +206,9 @@ configuration `LD_LIBRARY_PATH` advice in
 
 | Test file | Route | Needs |
 |---|---|---|
-| `test/scout/python/test_util.rb` | in-process (`PyCall`) | `numpy`, `pandas` (both via `pyimport`) |
-| `test/scout/test_python.rb` | in-process | `torch` (only in `test_binding`) |
+| `test/scout-rig/testing/test_availability.rb` | subprocess (probes + fakes) | nothing optional: fakes only; two tests omit when no real interpreter exists |
+| `test/scout/python/test_util.rb` | in-process (`PyCall`) | `numpy`, `pandas` (both via `pyimport`; both optional, gated) |
+| `test/scout/test_python.rb` | in-process | `torch` (only in `test_binding`; optional, gated) |
 | `test/scout/python/test_script.rb` | subprocess | `numpy`, `pandas`, and `python/scout` importable via `PYTHONPATH` (handled automatically) |
 | `test/scout/python/test_task.rb` | subprocess | stdlib only (`typing`) |
 | `test/scout/workflow/test_python.rb` | subprocess | `numpy`, `pandas` (imports `scout`, which imports pandas) |
@@ -201,6 +218,120 @@ The Python-side package also needs the Ruby CLI (`rbbt`/`rbbt_exec.rb`) on
 the closest thing is `python/test.py`, an ad-hoc script that shells out to the
 `Baking` example workflow and requires it installed. It is not run by any rake
 task.
+
+### Optional-prerequisite gating with the availability helpers
+
+`test/test_helper.rb` requires scout-rig's opt-in availability probes, so
+every test file can use them:
+
+```ruby
+require 'scout-rig/testing/availability'
+```
+
+The helpers run real interpreters as subprocesses through
+`Scout::Testing::Availability.run_command`, with a bounded timeout, and decide
+on **exit status** alone. They never download or install anything, never
+initialize PyCall, and never mutate `PYTHON`/`PATH` (the pins below are read
+only). Everything needed for them ships with the gem plus scout-essentials;
+there are no new gem dependencies.
+
+The complete surface (module functions on `ScoutRig::Testing::Availability`;
+`ScoutRig::Testing::Helpers` is the same module, for `include`-style use):
+
+| Method | Returns |
+|---|---|
+| `python?(executable: nil, route: :subprocess, timeout: nil)` | `true` iff the selected Python exists **and runs** (a sanity probe must exit 0); `false` otherwise. PATH existence alone is not enough. |
+| `python_modules?(*modules, executable: nil, route: :subprocess, timeout: nil)` | `true` iff every named module imports in the selected interpreter. An empty list is vacuously true **once an interpreter was resolved**. |
+| `python_modules_reason(*modules, ...)` | `nil` on success; otherwise one concise string: the resolved executable path, the missing/unloadable module names, and the condensed exception text from stderr. |
+| `rscript?(executable: nil, timeout: nil)` | `true` iff the selected Rscript exists and runs (sanity probe exits 0). |
+| `r_packages?(*packages, executable: nil, timeout: nil)` | `true` iff every named package **loads** (`requireNamespace`), not merely appears in an installation list. |
+| `r_packages_reason(*packages, ...)` | `nil` on success; otherwise the resolved executable path, the missing package names (stdout first), then the stderr tail. |
+| `embedded_python` | The interpreter the embedded route **would** use, without running anything: `ENV['PYTHON']` if set, else the first `python3`/`python` on PATH. `nil` when neither exists. |
+| `subprocess_python` | The interpreter the subprocess route uses: the literal command `python` from PATH (`ENV['PYTHON']` is never consulted there). `nil` when PATH has no `python`. |
+| `python_routes_divergence_reason` | `nil` when both routes resolve to the same interpreter (symlinks canonicalized); otherwise one sentence naming both resolutions, the `ENV['PYTHON']`/PATH cause, and that no probe validates both routes. |
+| `reset!` | Clears all memoized probe results (returns `nil`). |
+
+Module and package names travel as **argv** to fixed probe sources; they are
+never interpolated into code, so a name like `sys\nimport os` is treated as one
+literal module name and nothing extra executes. Arguments and symbols are both
+accepted for names (`python_modules?(:torch)`).
+
+Selection precedence, first match wins:
+
+1. the `executable:` keyword (explicit, overrides everything);
+2. `ENV['SCOUT_TEST_PYTHON']` (Python) / `ENV['SCOUT_TEST_RSCRIPT']` (R) —
+   **test-only pins defined by this library**; they affect probing only and
+   have no production effect;
+3. the `route:` default — `:subprocess` (the default) resolves
+   `subprocess_python`, `:embedded` resolves `embedded_python`.
+
+Because resolution re-runs on every call, mid-process `ENV`/`PATH` changes are
+honoured. Definitive outcomes (success / missing module / missing package) are
+memoized on `[resolved executable, sorted names, timeout, route]`; **timeouts
+and launch errors are never memoized**. Call `reset!` when you change
+`SCOUT_TEST_PYTHON`, `SCOUT_TEST_RSCRIPT`, `PATH` or `ENV['PYTHON']` and want
+a provably fresh probe. `python?`/`python_modules?` never inspect output, only
+exit status. An unknown `route:` raises `ArgumentError`.
+
+**Route semantics.** The two production routes select interpreters
+independently, and a probe validates only the route it ran:
+
+- `:embedded` mirrors `PyCall.init` — `ENV['PYTHON']` if set, else the first
+  `python3`/`python` on PATH. It is a **prediction**: probing it runs that
+  interpreter as a subprocess; it does not prove that `libpython` can be
+  `dlopen`ed into the Ruby process.
+- `:subprocess` mirrors `ScoutPython.script`/`run_file`/`python_task` — the
+  literal `python` from PATH, ignoring `ENV['PYTHON']`.
+- Consequently a passing `:subprocess` probe says nothing about the embedded
+  route and vice versa. `python_routes_divergence_reason` reports the
+  disagreement (and deliberately ignores the `SCOUT_TEST_PYTHON` pin, which
+  hides divergences from probes).
+
+Because `PyCall.init` **sets** `ENV['PYTHONHOME']` to the home of whatever it
+embedded, setting `PYTHON` alone can leave the subprocess route broken. The
+recommended practice is unchanged from the section above: put the chosen
+environment's `bin` first on `PATH` (and unset `PYTHON`), optionally pinning
+`SCOUT_TEST_PYTHON` for probe-only reproducibility.
+
+**Module availability is not PyCall validation.** `python_modules?('torch',
+route: :embedded)` answers "does torch import in the interpreter the embedded
+route would pick, run as a subprocess". It does not exercise the in-process
+bridge, so a pass cannot cover a broken native binding. That is exactly why
+the gate pattern below puts the probe in the `omit` condition only:
+
+```ruby
+def test_binding
+  # torch is OPTIONAL (no lib/ code and no manifest requires it).
+  omit(
+    "torch not importable in the embedded (PyCall) interpreter: " \
+    "#{ScoutRig::Testing::Availability.python_modules_reason('torch', route: :embedded)}. " \
+    'Install torch or pin SCOUT_TEST_PYTHON to an interpreter that has it.'
+  ) unless ScoutRig::Testing::Availability.python_modules?('torch', route: :embedded)
+
+  ScoutPython.binding_run do
+    pyimport :torch        # unconditional: still fails if the probe lied
+  end
+end
+```
+
+**Gating recipe for dependent packages:**
+
+1. Classify the prerequisite. If scout-rig's documented functionality
+   *requires* it (for example the `scout` Python package, which is scout-rig's
+   own packaged code, or pandas, which `python/pyproject.toml` declares), do
+   **not** gate it — a missing required dependency is a failure worth seeing.
+2. If it is optional (required by no `lib/` code and no manifest, like `torch`
+   or `numpy` in the tests above), put the gate at the **top of the test
+   method** and let the body run unconditionally when the probe passes.
+3. Pick the route that matches how the test uses the interpreter:
+   `route: :embedded` for in-process PyCall tests, the default `:subprocess`
+   for `script()`/`run_file`/`python_task` tests.
+4. Include the reason string in the `omit` message; it already names the
+   module, the resolved executable and a remedy.
+
+The helpers themselves are tested by `test/scout-rig/testing/test_availability.rb`
+(30 tests, fakes only; two tests additionally omit on machines with no real
+interpreter at all, which keeps the file green everywhere).
 
 ### Coverage of the two routes (verified at HEAD)
 
@@ -268,8 +399,15 @@ From `rake -T` at HEAD:
 PATH=/path/to/python-env/bin:$PATH rake test
 ```
 
-Expect `9 tests` in a stock checkout. If you get `1 errors` mentioning
-`torch`, the interpreter on `PATH` lacks it (see above).
+Expect `53 tests` in a stock checkout. On a machine without `torch` the
+summary shows `1 omissions` (the gated `test_binding`, with a reason naming
+torch and the resolved interpreter) rather than an error; with `torch`
+present it runs for real and a broken binding still fails.
+
+The interpreter-selection divergence and its one-line remedy are described in
+[Python interpreter selection for the suite](#python-interpreter-selection-for-the-suite)
+and
+[Optional-prerequisite gating with the availability helpers](#optional-prerequisite-gating-with-the-availability-helpers).
 
 ### Run one file
 
@@ -303,6 +441,7 @@ pip install -e .        # or python -m build
 - [Architecture](../developer/Architecture.md) — module map and dependencies.
 
 ---
-*Verified against HEAD `290ee22`, VERSION `0.2.6`, on 2026-09-12 with Ruby
-3.3.1, pycall 1.5.2, Python 3.13.3 (system) and 3.12.12 (micromamba
-`python3`).*
+*Verified against HEAD `386954a4`, VERSION `0.2.6`, on 2026-10-11 with Ruby
+3.3.1, pycall 1.5.2, Python 3.13.3 (system). Suite state at that revision:
+53 tests, 0 failures, 0 errors, 1 omission on a torch-less machine. The
+availability helpers are at `lib/scout-rig/testing/availability.rb`.*

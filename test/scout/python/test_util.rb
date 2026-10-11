@@ -5,6 +5,14 @@ require 'scout/python'
 class TestPythonUtil < Test::Unit::TestCase
 
   def test_tuple
+    # numpy/pandas are optional test prerequisites (no lib/ code and no
+    # manifest requires them); ScoutPython.tsv2df/df2tsv run in-process
+    # through PyCall, so probe the embedded route.
+    omit(
+      "numpy not importable in the embedded (PyCall) interpreter: #{ScoutRig::Testing::Availability.python_modules_reason('numpy', route: :embedded)}. " \
+      'Install numpy or pin SCOUT_TEST_PYTHON to an interpreter that has it.'
+    ) unless ScoutRig::Testing::Availability.python_modules?('numpy', route: :embedded)
+
     tsv = TSV.setup([], :key_field => "Key", :fields => %w(Value1 Value2), :type => :list)
     tsv["k1"] = %w(V1_1 V2_1)
     tsv["k2"] = %w(V1_2 V2_2)
@@ -14,6 +22,11 @@ class TestPythonUtil < Test::Unit::TestCase
   end
 
   def test_numpy
+    omit(
+      "numpy not importable in the embedded (PyCall) interpreter: #{ScoutRig::Testing::Availability.python_modules_reason('numpy', route: :embedded)}. " \
+      'Install numpy or pin SCOUT_TEST_PYTHON to an interpreter that has it.'
+    ) unless ScoutRig::Testing::Availability.python_modules?('numpy', route: :embedded)
+
     ra = ScoutPython.run :numpy, :as => :np do
       na = np.array([[[1,2,3], [4,5,6]]])
       ScoutPython.numpy2ruby na

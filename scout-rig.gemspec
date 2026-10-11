@@ -25,9 +25,25 @@ Gem::Specification.new do |s|
     "README.md",
     "Rakefile",
     "VERSION",
-    "doc/Python.md",
-    "doc/PythonWorkflow.md",
+    "doc/Improvements.md",
+    "doc/StartHere.md",
+    "doc/developer/Architecture.md",
+    "doc/developer/DataConversionInternals.md",
+    "doc/developer/DesignPrinciples.md",
+    "doc/developer/PythonTaskRunnerInternals.md",
+    "doc/developer/PythonWorkflowInternals.md",
+    "doc/developer/ScoutPythonInternals.md",
+    "doc/user/Cookbook.md",
+    "doc/user/DefiningPythonTasks.md",
+    "doc/user/DrivingWorkflowsFromPython.md",
+    "doc/user/IteratingPythonData.md",
+    "doc/user/PassingDataToPython.md",
+    "doc/user/PythonEnvironments.md",
+    "doc/user/RunningPythonFromRuby.md",
+    "doc/user/ScriptingPython.md",
+    "doc/user/TestingAndPackaging.md",
     "lib/scout-rig.rb",
+    "lib/scout-rig/testing/availability.rb",
     "lib/scout/python.rb",
     "lib/scout/python/paths.rb",
     "lib/scout/python/run.rb",
@@ -41,10 +57,21 @@ Gem::Specification.new do |s|
     "python/pyproject.toml",
     "python/scout/__init__.py",
     "python/scout/runner.py",
+    "python/scout/task_errors.py",
     "python/scout/workflow.py",
     "python/scout/workflow/remote.py",
     "python/test.py",
+    "research/00_scope_and_themes.md",
+    "research/data-conversion-and-scripting-analysis.md",
+    "research/design-philosophy-analysis.md",
+    "research/python-helper-package-analysis.md",
+    "research/pythonworkflow-analysis.md",
+    "research/scoutpython-bridge-analysis.md",
+    "research/synthesis-report.md",
+    "research/testing-availability-baseline.md",
+    "research/validation-report.md",
     "scout-rig.gemspec",
+    "test/scout-rig/testing/test_availability.rb",
     "test/scout/python/test_run.rb",
     "test/scout/python/test_script.rb",
     "test/scout/python/test_util.rb",
@@ -55,7 +82,7 @@ Gem::Specification.new do |s|
   ]
   s.homepage = "http://github.com/mikisvaz/scout-rig".freeze
   s.licenses = ["MIT".freeze]
-  s.rubygems_version = "3.7.0.dev".freeze
+  s.rubygems_version = "3.7.2".freeze
   s.summary = "Scouts rigging things together".freeze
 
   s.specification_version = 4

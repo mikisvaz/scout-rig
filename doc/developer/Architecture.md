@@ -185,9 +185,13 @@ Python code
 - `numpy` — Required for numpy2ruby and array conversions.
 - `pandas` — Required for TSV↔DataFrame conversion and TSV I/O.
 - `requests` — Optional, for remote workflow client.
-- `torch` — Not required by the library, but the one enabled test in
-  `test/scout/test_python.rb` (`test_binding`) imports it, so a plain
-  `rake test` errors out in an environment without it. See
+- `torch` — Not required by the library. It is an *optional test
+  prerequisite*: `test_binding` in `test/scout/test_python.rb` needs it and
+  is gated with the availability helpers (`omit` +
+  `ScoutRig::Testing::Availability.python_modules?('torch', route:
+  :embedded)`), so its absence omits the test instead of erroring. `numpy`
+  is likewise optional for the tests that use it. Neither is required by any
+  production code. See
   [Testing and Packaging](../user/TestingAndPackaging.md).
 
 ### Internal dependencies (Ruby → Ruby)

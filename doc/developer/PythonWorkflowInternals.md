@@ -357,6 +357,16 @@ spaces, semicolons, parentheses or commas, but has two consequences:
   exit status 2). There is no `--` separator in the generated command.
 
 ### Return value decoding
+PythonWorkflow task execution passes `SCOUT_JOB_FILES_DIR` through the
+`run_file` child-only `env:` option, using the executing Step's `files_dir`.
+This identifies the job's `.files` auxiliary-file directory; Python task code
+can use it to create outputs that belong with the job. `run_file` first removes
+any inherited `SCOUT_JOB_FILES_DIR` from the child, then applies explicit
+`env:` values. Thus metadata discovery and direct calls without a Step have no
+job directory and cannot accidentally observe a stale parent value. The Ruby
+process environment is never mutated. Other runner calls do not set this
+variable.
+
 
 The Python function's return value is printed to stdout. Ruby decodes it:
 

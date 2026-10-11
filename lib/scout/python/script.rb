@@ -1,3 +1,5 @@
+require 'shellwords'
+
 module ScoutPython
   def self.ruby2python(object)
     case object
@@ -108,8 +110,15 @@ if result is not None:
     end
   end
 
-  def self.run_file(file, arg_str)
+  def self.run_file(file, arg_str, env: {})
     path_env = ScoutPython.paths * ":"
-    CMD.cmd("env PYTHONPATH=#{path_env} python '#{file}' #{arg_str}")
+    # Non-Step calls must not inherit a stale sidecar from the parent process.
+    env_assignments = env.map { |name, value| "#{name}=#{Shellwords.escape(value.to_s)}" }.join(' ')
+    command = 'env'
+    command << ' -u SCOUT_JOB_FILES_DIR'
+    command << " PYTHONPATH=#{Shellwords.escape(path_env)}"
+    command << " #{env_assignments}" unless env_assignments.empty?
+    command << " python #{Shellwords.escape(file.to_s)} #{arg_str}"
+    CMD.cmd(command)
   end
 end

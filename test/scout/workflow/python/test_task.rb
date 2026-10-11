@@ -115,6 +115,72 @@ scout.task(hello)
     end
   end
 
+  def test_runtime_task_receives_its_step_files_directory
+    source = <<~PYTHON
+      import os
+      from pathlib import Path
+      import scout
+
+      def sidecar_path() -> str:
+          directory = Path(os.environ["SCOUT_JOB_FILES_DIR"])
+          directory.mkdir(parents=True, exist_ok=True)
+          (directory / "auxiliary.txt").write_text("task output", encoding="utf-8")
+          return str(directory)
+
+      scout.task(sidecar_path)
+    PYTHON
+
+    with_runtime_task(source) do |_directory, workflow, _file|
+      step = workflow.job(:sidecar_path)
+      returned_directory = step.run
+      assert_equal File.expand_path(step.files_dir), File.expand_path(returned_directory)
+      assert_equal 'task output', File.read(File.join(step.files_dir, 'auxiliary.txt'))
+    end
+  end
+
+  def test_run_file_does_not_inherit_stale_files_directory
+    TmpFile.with_file("import os, json
+print(json.dumps(os.environ.get('SCOUT_JOB_FILES_DIR')))
+") do |file|
+      previous = ENV['SCOUT_JOB_FILES_DIR']
+      ENV['SCOUT_JOB_FILES_DIR'] = '/stale/parent/sidecar'
+      output = ScoutPython.run_file(file, '')
+      assert_nil JSON.parse(output.read)
+      assert_equal '/stale/parent/sidecar', ENV['SCOUT_JOB_FILES_DIR'], 'run_file must not mutate Ruby ENV'
+    ensure
+      previous.nil? ? ENV.delete('SCOUT_JOB_FILES_DIR') : ENV['SCOUT_JOB_FILES_DIR'] = previous
+    end
+  end
+
+  def test_run_file_explicit_environment_overrides_stale_parent_value
+    TmpFile.with_file("import os, json
+print(json.dumps(os.environ.get('SCOUT_JOB_FILES_DIR')))
+") do |file|
+      previous = ENV['SCOUT_JOB_FILES_DIR']
+      ENV['SCOUT_JOB_FILES_DIR'] = '/stale/parent/sidecar'
+      output = ScoutPython.run_file(file, '', env: { 'SCOUT_JOB_FILES_DIR' => '/explicit/child/sidecar' })
+      assert_equal '/explicit/child/sidecar', JSON.parse(output.read)
+      assert_equal '/stale/parent/sidecar', ENV['SCOUT_JOB_FILES_DIR'], 'run_file must not mutate Ruby ENV'
+    ensure
+      previous.nil? ? ENV.delete('SCOUT_JOB_FILES_DIR') : ENV['SCOUT_JOB_FILES_DIR'] = previous
+    end
+  end
+
+  def test_run_file_unrelated_environment_does_not_inherit_stale_files_directory
+    TmpFile.with_file("import os, json\nprint(json.dumps([os.environ.get('UNRELATED_CHILD_ENV'), os.environ.get('SCOUT_JOB_FILES_DIR')]))\n") do |file|
+      previous_sidecar = ENV['SCOUT_JOB_FILES_DIR']
+      previous_unrelated = ENV['UNRELATED_CHILD_ENV']
+      ENV['SCOUT_JOB_FILES_DIR'] = '/stale/parent/sidecar'
+      ENV.delete('UNRELATED_CHILD_ENV')
+      output = ScoutPython.run_file(file, '', env: { 'UNRELATED_CHILD_ENV' => 'explicit-value' })
+      assert_equal ['explicit-value', nil], JSON.parse(output.read)
+      assert_equal '/stale/parent/sidecar', ENV['SCOUT_JOB_FILES_DIR'], 'run_file must not mutate Ruby ENV'
+    ensure
+      previous_sidecar.nil? ? ENV.delete('SCOUT_JOB_FILES_DIR') : ENV['SCOUT_JOB_FILES_DIR'] = previous_sidecar
+      previous_unrelated.nil? ? ENV.delete('UNRELATED_CHILD_ENV') : ENV['UNRELATED_CHILD_ENV'] = previous_unrelated
+    end
+  end
+
   def test_runtime_success_and_protocol_looking_stdout
     with_runtime_task("import scout\ndef hello() -> str:\n    return 'ordinary success'\nscout.task(hello)\n") do |_directory, workflow, _file|
       assert_equal 'ordinary success', workflow.job(:hello).run
@@ -199,7 +265,7 @@ scout.task(hello)
        '{"version":1,"error":"ScoutTaskError","message":4,"traceback":"y"}'].each do |protocol|
         step = workflow.job(:hello, "case-#{protocol.inspect}")
         original = ScoutPython.method(:run_file)
-        ScoutPython.define_singleton_method(:run_file) do |_file, args|
+        ScoutPython.define_singleton_method(:run_file) do |_file, args, **_options|
           path = Shellwords.split(args).each_cons(2).find { |key, _value| key == '--scout-error-file' }&.last
           File.write(path, protocol) if path && protocol
           raise ProcessFailed.new(nil, 'synthetic runner failure')
@@ -219,7 +285,7 @@ scout.task(hello)
     with_runtime_task(source) do |_directory, workflow, _file|
       step = workflow.job(:hello)
       original = ScoutPython.method(:run_file)
-      ScoutPython.define_singleton_method(:run_file) do |_file, _args|
+      ScoutPython.define_singleton_method(:run_file) do |_file, _args, **_options|
         raise ProcessFailed.new(nil, 'synthetic executable could not be started')
       end
       error = assert_raise(ProcessFailed) { step.run }
@@ -282,9 +348,9 @@ scout.task(hello)
   def capture_python_runs
     original = ScoutPython.method(:run_file)
     calls = []
-    ScoutPython.define_singleton_method(:run_file) do |file, args|
+    ScoutPython.define_singleton_method(:run_file) do |file, args, **options|
       calls << [file, args]
-      original.call(file, args)
+      original.call(file, args, **options)
     end
     yield
     calls

@@ -22,6 +22,7 @@ Juwelier::Tasks.new do |gem|
   gem.add_development_dependency "juwelier", "~> 2.1.0"
 
   gem.add_runtime_dependency 'pycall', '> 0'
+  gem.add_runtime_dependency 'scout-essentials', '> 0'
 end
 Juwelier::RubygemsDotOrgTasks.new
 require 'rake/testtask'
