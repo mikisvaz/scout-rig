@@ -19,6 +19,15 @@ scout-rig=/$PWD filter="*" {
   documentation
 
   python_metadata
+
+  python_scout_exception
+
+  python_extension
+
+  python_job_dir
+
+  testing_refactor
+
  }
  lib=lib {
   scout-rig.rb
