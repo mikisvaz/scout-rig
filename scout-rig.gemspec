@@ -71,8 +71,9 @@ Gem::Specification.new do |s|
     "research/testing-availability-baseline.md",
     "research/validation-report.md",
     "scout-rig.gemspec",
-    "test/scout-rig/testing/test_availability.rb",
     "test/scout/python/test_run.rb",
+    "test/scout-rig/testing/test_availability.rb",
+    "test/scout-rig/testing/test_test_support.rb",
     "test/scout/python/test_script.rb",
     "test/scout/python/test_util.rb",
     "test/scout/test_python.rb",
@@ -89,5 +90,5 @@ Gem::Specification.new do |s|
 
   s.add_development_dependency(%q<juwelier>.freeze, ["~> 2.1.0".freeze])
   s.add_runtime_dependency(%q<pycall>.freeze, ["> 0".freeze])
+  s.add_runtime_dependency(%q<scout-essentials>.freeze, ["> 0".freeze])
 end
-

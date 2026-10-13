@@ -103,13 +103,48 @@ ruby -Ilib:test test/scout/python/test_util.rb
 ```
 
 `test_helper.rb` unshifts `../lib` and the `test/` directory onto
-`$LOAD_PATH`, isolates every test under `tmp/test_tmpdir` (`Open.rm_rf` in both
-`setup` and `teardown`, redirecting `TmpFile`, `Persist`, `Open.remote_cache`
-and `Workflow.directory` there), quiets progress bars, and — since the
+`$LOAD_PATH`, isolates every test under `tmp/test_tmpdir`, and — since the
 availability work — requires the opt-in test probes described below
 (`require 'scout-rig/testing/availability'`) so any test file can gate
-optional prerequisites. The suite is plain `Test::Unit`; there is no
+optional prerequisites. State setup and cleanup are detailed in the following
+section. The suite is plain `Test::Unit`; there is no
 interpreter selection in the helper and no `minitest`/`rspec`.
+
+### Shared scout-essentials testing helpers
+
+`test/test_helper.rb` opts in to scout-essentials' test-only APIs with
+`require 'scout/testing'` and `require 'scout/testing/scout_state'`. It
+includes `Scout::Testing::Assertions` for `assert_equal_path` and activates
+`Scout::Testing::State` per test. The shared State isolates its built-in
+`TmpFile`, `Persist`, and `Open` settings and prior `Persist::MEMORY_CACHE`
+contents, plus Rig's `Persist.cache_dir`, `Open.remote_cache_dir`, and
+`SchedulerJob.batch_base_dir` through simple accessor bindings. Persist and
+Open intentionally keep the same `var/cache` target. All are restored on
+teardown (including when setup or a test raises).
+
+Rig keeps some state local: `Log::ProgressBar.default_severity` is scalar
+policy; `Workflow.directory` is a `Path` setting, and setting an individual
+workflow's directory cascades to task directories; and
+`Entity.entity_property_cache` has `Path` semantics. These are snapshotted
+and restored locally, including prior instance-variable definedness. Task
+memoization is isolated by swapping `Workflow.job_cache` for a new hash and
+restoring the original hash reference; it is not cleared destructively. The
+fixed `tmp/test_tmpdir` cleanup also remains Rig-owned.
+
+The generic `Scout::Testing.create_tmpdir`, `remove_tmpdir`, and
+`with_tmpdir(parent:, prefix:)` helpers are available for focused scratch
+directories; `with_tmpdir` yields a String path and ensures it is removed.
+The suite's shared `tmpdir` remains its existing fixed `Path` under
+`tmp/test_tmpdir`, since its framework caches and setup depend on that common
+root. Fixture lookup (`datadir_test` and `datafile_test`) also remains local:
+the essentials fixture helpers use a different `test/fixtures` convention.
+
+These are test-only requires, not production requires. The Rakefile declares
+`scout-essentials` as a runtime dependency, and regenerating the Juwelier-managed
+gemspec records it as `> 0`. That open-ended bound does not establish a release
+containing these helper files: the inspected 1.9.1 release lacks them, and no
+compatible released minimum was verified. Do not infer a minimum version from
+the checkout's version number.
 
 ### Test names prefixed with `_` are disabled, not skipped
 
@@ -125,8 +160,11 @@ The visible numbers therefore hide how much is actually untested:
 - The other four original files are fully enabled: 4 + 2 + 1 + 15 tests.
 - `test/scout-rig/testing/test_availability.rb` adds 30 tests for the
   availability helpers themselves (see below).
+- `test/scout-rig/testing/test_test_support.rb` adds 5 tests / 47 assertions
+  for shared test-helper setup, bound and local state restoration, and
+  temporary-directory helpers.
 
-A full run therefore executes **53 tests**.
+A full run therefore executes **58 tests**.
 
 ### What `rake test` does today
 
@@ -138,7 +176,7 @@ Omission: torch not importable in the embedded (PyCall) interpreter: <resolved
 python>: missing Python modules: torch (torch: ModuleNotFoundError: No module
 named 'torch'). Install torch or pin SCOUT_TEST_PYTHON to an interpreter that
 has it. [test_binding(TestPython)]
-  53 tests, 204 assertions, 0 failures, 0 errors, 0 pendings, 1 omissions, ...
+  58 tests, 251 assertions, 0 failures, 0 errors, 0 pendings, 1 omissions, ...
 ```
 
 `test_binding` in `test/scout/test_python.rb` is the only enabled test in that
@@ -157,10 +195,10 @@ from the observed torch-less run — not a captured run:
 
 ```
 PATH=/path/to/conda-env/bin:$PATH rake test   # expected total, derived:
-  53 tests, 206 assertions, 0 failures, 0 errors, ...
+  58 tests, 253 assertions, 0 failures, 0 errors, ...
 ```
 
-(206 rather than 204 assertions because `test_binding`'s two `assert`s execute
+(253 rather than 251 assertions because `test_binding`'s two `assert`s execute
 when the gate passes.) The gate omits *only*: a probe that passes never
 suppresses the `pyimport` that follows, so a broken PyCall binding still
 fails the test.
@@ -399,7 +437,7 @@ From `rake -T` at HEAD:
 PATH=/path/to/python-env/bin:$PATH rake test
 ```
 
-Expect `53 tests` in a stock checkout. On a machine without `torch` the
+Expect `58 tests` in a stock checkout. On a machine without `torch` the
 summary shows `1 omissions` (the gated `test_binding`, with a reason naming
 torch and the resolved interpreter) rather than an error; with `torch`
 present it runs for real and a broken binding still fails.
