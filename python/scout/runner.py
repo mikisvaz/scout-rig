@@ -283,9 +283,30 @@ def _extract_description(docstring: str) -> str:
     return "\n".join(out_lines).strip()
 
 
+def _extract_extension(docstring: str) -> tuple[str | None, str]:
+    """Extract an optional standalone ``Extension: suffix`` docstring field."""
+    extension = None
+    found = False
+    remaining_lines = []
+
+    for line in docstring.splitlines():
+        if re.match(r"^\s*Extension:", line):
+            if found:
+                raise ValueError("A task docstring may contain only one Extension: field")
+            found = True
+            extension = line.split(":", 1)[1].strip()
+            if not extension or re.search(r"\s", extension):
+                raise ValueError("Extension: must be followed by one non-empty suffix token")
+        else:
+            remaining_lines.append(line)
+
+    return extension, "\n".join(remaining_lines)
+
+
 def describe_function(func) -> dict:
     sig = inspect.signature(func)
     doc = inspect.getdoc(func) or ""
+    extension, doc = _extract_extension(doc)
     params_doc = _parse_numpy_params(doc)
 
     ret_type = _python_type_to_string(sig.return_annotation)
@@ -305,12 +326,15 @@ def describe_function(func) -> dict:
             "help": help_text,
         })
 
-    return {
+    metadata = {
         "name": func.__name__,
         "description": description,
         "returns": ret_type,
         "params": params,
     }
+    if extension is not None:
+        metadata["extension"] = extension
+    return metadata
 
 
 def _has_boolean_optional_action():

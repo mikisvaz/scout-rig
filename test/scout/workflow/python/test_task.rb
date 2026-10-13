@@ -115,6 +115,103 @@ scout.task(hello)
     end
   end
 
+  def test_docstring_extension_is_extracted_and_applies_only_to_its_function
+    source = <<~PYTHON
+      import scout
+
+      def tailored(value: str) -> str:
+          """An individual description.
+
+          Extension: json
+
+          Args:
+              value: The parameter help must survive extraction.
+          """
+          return value
+
+      def sibling() -> str:
+          """A sibling description."""
+          return 'text'
+
+      scout.task(tailored)
+      scout.task(sibling)
+    PYTHON
+
+    with_runtime_task(source) do |_directory, workflow, file|
+      metadata = PythonWorkflow.read_python_metadata(file).to_h { |meta| [meta['name'], meta] }
+      assert_equal 'json', metadata.fetch('tailored').fetch('extension')
+      assert_false metadata.fetch('sibling').key?('extension')
+      assert_equal 'An individual description.', metadata.fetch('tailored').fetch('description')
+      assert_equal 'The parameter help must survive extraction.', metadata.fetch('tailored').fetch('params').first.fetch('help')
+
+      assert_equal 'json', workflow.tasks[:tailored].extension
+      assert_not_equal 'json', workflow.tasks[:sibling].extension
+      assert_match(/\.json\z/, workflow.job(:tailored, value: 'sample').path.to_s)
+    end
+  end
+
+  def test_docstring_extension_overrides_file_level_fallback_only_for_that_function
+    source = <<~PYTHON
+      import scout
+
+      def custom() -> str:
+          """Custom result.
+
+          Extension: json
+          """
+          return 'custom'
+
+      def fallback() -> str:
+          """Fallback result."""
+          return 'fallback'
+
+      scout.task(custom)
+      scout.task(fallback)
+    PYTHON
+
+    with_runtime_task(source) do |_directory, _loaded, file|
+      workflow = Module.new
+      workflow.extend Workflow
+      workflow.extend PythonWorkflow
+      workflow.python_task :fixture, file: file, extension: 'csv'
+
+      assert_equal 'json', workflow.tasks[:custom].extension
+      assert_equal 'csv', workflow.tasks[:fallback].extension
+      assert_match(/\.json\z/, workflow.job(:custom).path.to_s)
+      assert_match(/\.csv\z/, workflow.job(:fallback).path.to_s)
+    end
+  end
+
+  def test_docstring_extension_is_available_in_batch_and_per_file_metadata_discovery
+    with_extension_task_directory do |directory|
+      custom_file = File.join(directory, 'custom.py')
+      fallback_file = File.join(directory, 'fallback.py')
+
+      # Exercise the batch metadata collector directly, and verify registration
+      # on the normal batch directory-loading route.
+      batch_metadata = PythonWorkflow.read_python_metadata_files([custom_file, fallback_file])
+      assert_equal 'json', batch_metadata.fetch(File.expand_path(custom_file)).first.fetch('extension')
+      assert_false batch_metadata.fetch(File.expand_path(fallback_file)).first.key?('extension')
+
+      workflow_name = "ExtensionDiscovery#{object_id}"
+      begin
+        workflow = PythonWorkflow.load_directory(Path.setup(directory), workflow_name, batch: true)
+        assert_equal 'json', workflow.tasks[:custom].extension
+        assert_not_equal 'json', workflow.tasks[:fallback].extension
+      ensure
+        Object.send(:remove_const, workflow_name) if Object.const_defined?(workflow_name, false)
+      end
+
+      # The installed Open API lacks readpath, which the per-file directory
+      # loader uses. Exercise per-file runner metadata extraction directly.
+      [custom_file, fallback_file].each do |file|
+        metadata = PythonWorkflow.read_python_metadata(file).first
+        expected_extension = File.basename(file) == 'custom.py' ? 'json' : nil
+        assert_equal expected_extension, metadata['extension']
+      end
+    end
+  end
+
   def test_runtime_task_receives_its_step_files_directory
     source = <<~PYTHON
       import os
@@ -135,6 +232,26 @@ scout.task(hello)
       returned_directory = step.run
       assert_equal File.expand_path(step.files_dir), File.expand_path(returned_directory)
       assert_equal 'task output', File.read(File.join(step.files_dir, 'auxiliary.txt'))
+    end
+  end
+
+  def test_docstring_extension_rejects_empty_multi_token_and_duplicate_fields
+    ["Extension:", "Extension: json csv", "Extension: json\nExtension: csv"].each do |fields|
+      source = <<~PYTHON
+        import scout
+
+        def invalid() -> str:
+            """Invalid extension.
+        #{fields.gsub("\n", "\n            ")}
+            """
+            return 'x'
+
+        scout.task(invalid)
+      PYTHON
+      TmpFile.with_file(source) do |file|
+        error = assert_raise(ProcessFailed) { PythonWorkflow.read_python_metadata(file) }
+        assert_match(/Extension:/, error.message)
+      end
     end
   end
 
@@ -297,6 +414,33 @@ print(json.dumps(os.environ.get('SCOUT_JOB_FILES_DIR')))
   end
 
   private
+
+  def with_extension_task_directory
+    Dir.mktmpdir('python-workflow-extension-test') do |directory|
+      File.write(File.join(directory, 'custom.py'), <<~PYTHON)
+        import scout
+
+        def custom() -> str:
+            """Custom extension.
+
+            Extension: json
+            """
+            return 'custom'
+
+        scout.task(custom)
+      PYTHON
+      File.write(File.join(directory, 'fallback.py'), <<~PYTHON)
+        import scout
+
+        def fallback() -> str:
+            """No custom extension."""
+            return 'fallback'
+
+        scout.task(fallback)
+      PYTHON
+      yield directory
+    end
+  end
 
   def with_runtime_task(source)
     Dir.mktmpdir('python-task-runtime') do |directory|

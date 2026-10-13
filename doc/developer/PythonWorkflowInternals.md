@@ -22,6 +22,12 @@ signature (type hints, defaults) and docstring (parameter descriptions) are
 introspected at workflow definition time, automatically producing the Scout
 task declaration.
 
+A standalone `Extension: suffix` field in a function docstring is returned as
+optional per-function metadata. Ruby applies that suffix to the function's
+result path ahead of the file-level `python_task extension:` fallback; absent
+the field, the existing file-level/default behavior remains. The suffix only
+selects the result path extension and does not alter result conversion.
+
 ## Architecture
 
 ```
@@ -34,7 +40,7 @@ Ruby:  read_python_metadata(file)  ───► Python subprocess: file.py --sco
           │                                      │
           │ JSON parse                           │ describe_function()
           ▼                                      │ (runner.py: introspect signature + docstring)
-Ruby:  metas = [{name, description, returns, params}, ...]
+Ruby:  metas = [{name, description, returns, params, extension?}, ...]
           │
           ▼
 Ruby:  For each meta:

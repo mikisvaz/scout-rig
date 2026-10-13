@@ -27,6 +27,13 @@ The Ruby side never imports the module; it runs the file as a program and
 reads the `--scout-metadata` output. See
 [PythonWorkflow Internals](PythonWorkflowInternals.md).
 
+`describe_function` adds an `extension` metadata key only when the function
+docstring declares a standalone `Extension: suffix` field. It extracts the
+field before parsing description and parameter help, preserving those strings.
+The field is optional for backward-compatible metadata; duplicates and empty
+or whitespace-containing suffix values raise `ValueError` during metadata
+discovery.
+
 ## Type mapping
 
 `_python_type_to_string(ann)` maps a type hint to one of the Scout input

@@ -136,7 +136,8 @@ module PythonWorkflow
       end
 
       self.desc(task_desc) if task_desc && !task_desc.empty?
-      self.extension(extension) if extension
+      effective_extension = meta['extension'] || extension
+      self.extension(effective_extension) if effective_extension
 
       task({ meta['name'].to_sym => ruby_returns }) do |*args|
         arg_names = ruby_inputs.map { |i| i[:name] }

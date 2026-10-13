@@ -238,9 +238,29 @@ For example, `json`, `tsv`, and `sif` can be used as suffixes, but `sif`
 does not imply special SIF-format support. If `extension:` is omitted (or
 `nil`), Scout's normal extension behavior for the task's result type applies.
 
-The option belongs to the Python task-file registration. If the file registers
-multiple functions, the same suffix is applied to each resulting Scout task;
-it cannot be set separately per function through that one `python_task` call.
+The option belongs to the Python task-file registration and is a fallback for
+all functions registered from that file. A function may override it by adding
+one standalone `Extension:` field to its docstring:
+
+```python
+def network() -> str:
+    """Create a network result.
+
+    Extension: json
+    """
+    ...
+```
+
+The field may be indented with the surrounding docstring, and its value is
+trimmed but must be one non-empty suffix token (no whitespace). Duplicate
+`Extension:` fields are rejected. It is removed before description and
+parameter-help extraction. A function-level value takes precedence over the
+file-level `extension:` option; without it, the file option and then Scout's
+normal result-type behavior apply. In a multi-function file each function's
+field affects only that function.
+
+This changes only the result path suffix; it does not change serialization,
+conversion, or format validation.
 
 ## Docstring format
 
