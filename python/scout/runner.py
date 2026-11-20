@@ -304,7 +304,7 @@ def _extract_extension(docstring: str) -> tuple[str | None, str]:
 
 
 def describe_function(func) -> dict:
-    sig = inspect.signature(func)
+    sig = inspect.signature(func, eval_str=True)
     doc = inspect.getdoc(func) or ""
     extension, doc = _extract_extension(doc)
     params_doc = _parse_numpy_params(doc)

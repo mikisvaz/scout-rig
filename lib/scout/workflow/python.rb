@@ -9,7 +9,7 @@ module PythonWorkflow
   attr_accessor :python_task_dir
 
   def python_task_dir
-    @python_task_dir ||= Scout.python.tasks.find
+    @python_task_dir ||= libdir.python.tasks.find
   end
 
   def python_task_dir=(path)
@@ -54,7 +54,7 @@ module PythonWorkflow
 
     Kernel.const_set(workflow_name || "PythonWorkflow", workflow)
 
-    path = Scout.python.tasks if path.nil?
+    path = workflow.libdir.python.tasks.find if path.nil?
 
     # Set directly so load_directory's batch option remains authoritative and
     # directory tasks are registered exactly once.
