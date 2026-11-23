@@ -96,6 +96,14 @@ Then inspect metadata with:
 
     python hello.py --scout-metadata
 
+Annotations are validated when metadata is extracted: unsupported
+annotations (`dict`, bare `list`, multi-member unions such as
+`int | str`, custom classes) raise a clear error at task-registration
+time instead of silently degrading to a string input. Parameters
+annotated `pathlib.Path` arrive in the Python function as `pathlib.Path`
+objects (cast by the runner from the filename string Scout passes on the
+CLI).
+
 ## What pip installs
 
 The pip package installs only the Python module contained in this directory.

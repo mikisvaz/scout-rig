@@ -82,16 +82,16 @@ test/
 │   ├── test_python.rb                 # ScoutPython core (mostly disabled, see below)
 │   └── python/
 │       ├── test_run.rb                # empty: single test is commented out
-│       ├── test_script.rb             # script() facility + TSV round-trip (4 tests)
-│       └── test_util.rb               # numpy2ruby, tsv2df/df2tsv (2 tests)
+│       ├── test_script.rb             # script() facility + TSV round-trip
+│       └── test_util.rb               # numpy2ruby, tsv2df/df2tsv
 └── scout/workflow/
-    ├── test_python.rb                 # python_task end-to-end (1 test)
+    ├── test_python.rb                 # python_task end-to-end
     └── python/
-        └── test_task.rb               # read_python_metadata + task behavior (15 tests)
+        └── test_task.rb               # read_python_metadata + task behavior (annotation mapping contract incl. unsupported annotations, Optional/Annotated and postponed annotations (end-to-end + loud failure), Path caster, single-view input contracts with behavior, argv semantics incl. empty strings, literal-string flag, six-row refresh reconciliation, multi-task-file tracking, registration validation incl. native-collision refusal)
 ```
 
-plus `test/scout-rig/testing/test_availability.rb` (30 tests) for the
-availability helpers described below.
+plus `test/scout-rig/testing/test_availability.rb` for the availability
+helpers described below.
 
 `Rake::TestTask` in the `Rakefile` uses `test.pattern = 'test/**/test_*.rb'`
 with `test.libs << 'lib' << 'test'`, so `rake test` runs every file matching
@@ -153,18 +153,19 @@ renaming (`def _test_python`, `def __test_run_threaded`), which removes the
 method from the run entirely — it does not report as "omitted" or "pending".
 The visible numbers therefore hide how much is actually untested:
 
-- `test/scout/test_python.rb` declares 10 test methods; **9 are `_`-disabled**
-  and only `test_binding` runs.
-- `test/scout/python/test_run.rb` has 1 method (`__test_run_threaded`), so the
-  file contributes **zero tests**.
-- The other four original files are fully enabled: 4 + 2 + 1 + 15 tests.
-- `test/scout-rig/testing/test_availability.rb` adds 30 tests for the
-  availability helpers themselves (see below).
-- `test/scout-rig/testing/test_test_support.rb` adds 5 tests / 47 assertions
-  for shared test-helper setup, bound and local state restoration, and
-  temporary-directory helpers.
+- Most of `test/scout/test_python.rb` is `_`-disabled; only `test_binding`
+  runs (and it is torch-gated).
+- `test/scout/python/test_run.rb`'s single method is `__`-disabled, so the
+  file contributes no tests.
+- The other Ruby files are fully enabled; the count per file grows with the
+  code under test, so read the run summary rather than this document.
+- `test/scout-rig/testing/test_availability.rb` covers the availability
+  helpers themselves (see below).
+- `test/scout-rig/testing/test_test_support.rb` covers shared test-helper
+  setup, bound and local state restoration, and temporary-directory helpers.
 
-A full run therefore executes **58 tests**.
+The authoritative totals are whatever the current `rake test` run reports;
+this document deliberately does not pin them.
 
 ### What `rake test` does today
 
@@ -176,8 +177,11 @@ Omission: torch not importable in the embedded (PyCall) interpreter: <resolved
 python>: missing Python modules: torch (torch: ModuleNotFoundError: No module
 named 'torch'). Install torch or pin SCOUT_TEST_PYTHON to an interpreter that
 has it. [test_binding(TestPython)]
-  58 tests, 251 assertions, 0 failures, 0 errors, 0 pendings, 1 omissions, ...
+  <N> tests, <A> assertions, 0 failures, 0 errors, 0 pendings, 1 omissions, ...
 ```
+
+`<N>`/`<A>` stand for whatever the current run reports; they are shown as
+placeholders because the count grows with the code under test.
 
 `test_binding` in `test/scout/test_python.rb` is the only enabled test in that
 file and it hard-requires `torch` (it calls `pyimport :torch` and
@@ -190,16 +194,13 @@ the test would embed. Before the gate existed this same environment produced a
 hard `PyCall::PyError` error instead.
 
 Run the same suite with a `torch`-bearing interpreter on `PATH` and the test
-runs for real. The count below is the expected figure, derived by arithmetic
-from the observed torch-less run — not a captured run:
+runs for real, adding its assertions to the total; the omission disappears.
 
 ```
-PATH=/path/to/conda-env/bin:$PATH rake test   # expected total, derived:
-  58 tests, 253 assertions, 0 failures, 0 errors, ...
+PATH=/path/to/conda-env/bin:$PATH rake test
 ```
 
-(253 rather than 251 assertions because `test_binding`'s two `assert`s execute
-when the gate passes.) The gate omits *only*: a probe that passes never
+The gate omits *only* the gated test: a probe that passes never
 suppresses the `pyimport` that follows, so a broken PyCall binding still
 fails the test.
 
@@ -368,7 +369,7 @@ end
    module, the resolved executable and a remedy.
 
 The helpers themselves are tested by `test/scout-rig/testing/test_availability.rb`
-(30 tests, fakes only; two tests additionally omit on machines with no real
+(fakes only; two tests additionally omit on machines with no real
 interpreter at all, which keeps the file green everywhere).
 
 ### Coverage of the two routes (verified at HEAD)
@@ -437,10 +438,11 @@ From `rake -T` at HEAD:
 PATH=/path/to/python-env/bin:$PATH rake test
 ```
 
-Expect `58 tests` in a stock checkout. On a machine without `torch` the
-summary shows `1 omissions` (the gated `test_binding`, with a reason naming
-torch and the resolved interpreter) rather than an error; with `torch`
-present it runs for real and a broken binding still fails.
+On a machine without `torch` the summary shows `1 omissions` (the gated
+`test_binding`, with a reason naming torch and the resolved interpreter)
+rather than an error; with `torch` present it runs for real and a broken
+binding still fails. Take the reported totals from the run, not from this
+document.
 
 The interpreter-selection divergence and its one-line remedy are described in
 [Python interpreter selection for the suite](#python-interpreter-selection-for-the-suite)
@@ -479,7 +481,7 @@ pip install -e .        # or python -m build
 - [Architecture](../developer/Architecture.md) — module map and dependencies.
 
 ---
-*Verified against HEAD `386954a4`, VERSION `0.2.6`, on 2026-10-11 with Ruby
-3.3.1, pycall 1.5.2, Python 3.13.3 (system). Suite state at that revision:
-53 tests, 0 failures, 0 errors, 1 omission on a torch-less machine. The
-availability helpers are at `lib/scout-rig/testing/availability.rb`.*
+*Verified with Ruby 3.3.1, pycall 1.5.2, Python 3.13.3 (system) on a
+torch-less machine. Suite totals are intentionally not pinned here — read
+them from the run. The availability helpers are at
+`lib/scout-rig/testing/availability.rb`.*

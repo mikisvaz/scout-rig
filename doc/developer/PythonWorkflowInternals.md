@@ -88,11 +88,11 @@ omitted) and calls `python_task` for every `*.py` file found by
 
 ## Directory metadata loading
 
-`load_python_tasks(batch: false)` is the reusable directory loader. Its default
-is the established per-file path: each `*.py` task file is inspected by an
-individual metadata subprocess. With `batch: true`, it gathers all file
-metadata using one `--scout-metadata-files` runner process and passes the
-resulting metadata into task registration.
+`load_python_tasks(batch: true)` is the reusable directory loader. Its default
+is the batch path: all `*.py` task file metadata is gathered with one
+`--scout-metadata-files` runner process and passed into task registration. With
+`batch: false`, each `*.py` task file is inspected by an individual metadata
+subprocess instead.
 
 `PythonWorkflow`'s extension hook does not preload tasks; it prepares the
 workflow to use Python tasks. Assigning `python_task_dir=` then loads that
@@ -109,10 +109,12 @@ TestWF.python_task_dir = Path.setup("python/tasks")
 ```
 
 The setter must call `load_python_tasks`; there is no `load_tasks` method in
-this extension. `PythonWorkflow.load_directory(path, name, batch: false)` keeps
-its public per-file default; callers can request batch mode explicitly with
-`batch: true`. The extension hook's and setter's explicit batch selection does
-not change this API default.
+this extension. `PythonWorkflow.load_directory(path, name, batch: false)`
+explicitly requests per-file metadata discovery; its default is `batch: true`,
+and `load_directory(path, name, literal_strings: true)` initializes
+`python_literal_strings` before any registration (the plain setter does not
+re-register anything). These keyword forms do not change the extension hook's
+batch selection.
 
 Batch runner execution sets each file's `__name__` to `__main__` and captures
 registrations, including registrations guarded by `if __name__ == '__main__'`.
@@ -124,6 +126,50 @@ per-file processes; use the default per-file mode when isolation from shared
 module state is required. These notes describe tested behavior, not a claim
 that all stateful Python programs are supported equivalently.
 
+### Re-registration and inspection
+
+- `refresh_python_tasks!` re-runs the directory load and reconciles the
+  registered tasks with what the files currently export, returning
+  `{added:, changed:, removed:, unchanged:}`. The lifecycle is strictly
+  ordered: **collect** the current file metadata (one batch metadata
+  subprocess) → **decide** (added/changed/removed/unchanged per *name*,
+  including the `python_literal_strings` config-compare path and tasks
+  relocated between files) → **validate** the complete desired state →
+  **apply**.
+- **Failure policy (validate-before-mutate):** the complete desired state —
+  metadata shape, duplicates, names exported by two files, collisions with
+  native (Ruby-defined) tasks — is validated before the first mutation, so
+  a failed refresh raises with the registry and the tracking map exactly
+  as they were. There is no snapshot/rollback machinery and none is needed:
+  nothing is mutated until everything is known to be valid.
+- **Tracking is a plain map:** `@python_task_registrations` is
+  `file -> {metas:, literal_strings:}` — names and metadata, no task
+  objects. Task-object identity is not tracked at all; unchanged tasks
+  simply keep the task object the previous registration installed, and
+  ownership is decided from the live task's provenance (a task whose block
+  was defined in `python/task.rb` is a PythonWorkflow registration).
+- **Registration is per-task:** a file with any added/changed task is
+  re-registered through `python_task` with ONLY those metas, so the
+  unchanged siblings keep their task objects and the in-process
+  `Workflow.job_cache` entries keyed to a surviving sibling stay live and
+  retrievable; the file's tracking record is then committed once with
+  *all* current metas for that file, so desired tracking equals the
+  applied registry.
+- **Idempotency:** a second refresh with unchanged sources is a pure no-op
+  (empty `added`/`changed`/`removed`, `unchanged` populated, same task
+  objects in place). Native Ruby tasks in the workflow are untouched. Use
+  it after editing Python sources in-process.
+- `python_input_contracts` / `python_input_contract` expose the single
+  authoritative input-contract view per task (Python annotation, Scout
+  type, default, required, `behavior`, `flags`), built from the stored
+  registration metadata — not from a fresh extraction of the live task's
+  inputs. See
+  [DefiningPythonTasks](../user/DefiningPythonTasks.md) for the
+  `behavior` column values.
+- `python_literal_strings` is resolved at **registration time** (the input
+  options, including `noload`, are built when the task registers). Flip it
+  before loading, or refresh afterwards.
+
 ## Phase 1: Metadata discovery
 
 ### read_python_metadata(file)
@@ -133,20 +179,24 @@ Actual code at HEAD (`lib/scout/workflow/python/task.rb`):
 ```ruby
 def self.read_python_metadata(file)
   out = ScoutPython.run_file file, '--scout-metadata'
-  raise "Error getting metadata from #{file}: #{err}" unless out.exit_status == 0
+  raise "Error getting metadata from #{file}" unless out.exit_status == 0
   JSON.parse(out.read)
 end
 ```
 
-Two consequences:
+Consequences:
 
-- **The `raise` line is dead in practice.** `ScoutPython.run_file` calls
-  `CMD.cmd` without error tolerance, so a non-zero exit raises
-  `ProcessFailed` from `CMD` before the line is reached. The intended
-  `err` variable is never assigned (Improvements B1); had the line ever
-  run it would raise `NameError` for the undefined local.
 - **JSON errors are not wrapped.** A zero exit with non-JSON stdout raises
   a bare `JSON::ParserError` from `JSON.parse(out.read)`.
+- **Metadata is validated before any DSL side effect.**
+  `validate_python_task_metadata` runs in `register_python_task_metadata`
+  before the registrations hash or any `input`/`task` DSL call is touched,
+  and raises for: an empty metas list ("No tasks exported by <file>"), a
+  meta that is not a Hash, a missing `name` or `params` key, `params`
+  that is not a list, a duplicate task name *within* one metas list, and
+  a name that collides with a task already registered from a *different*
+  file. Re-registering from the same file replaces the previous entry, so
+  `refresh_python_tasks!` keeps working.
 
 This runs the Python file as a subprocess with `--scout-metadata`. The
 Python `scout.runner` module handles this flag:
@@ -162,9 +212,10 @@ if '--scout-metadata' in sys.argv:
 
 The metadata is a list of dicts, one per registered function. A
 single-function file prints a one-element list; `python_task` accepts
-either a list or a bare dict (`metas = [metas] unless Array === metas`). A
-file that registers no function prints nothing at all, and registration
-then fails with `JSON::ParserError`.
+either a list or a bare dict (`metas = [metas] unless Array === metas`). An
+empty list is rejected by validation ("No tasks exported by <file>")
+before any DSL call; a file that registers no function prints nothing at
+all and still fails earlier, at the `JSON.parse`.
 
 The metadata keys actually consumed by `python_task` are `name`,
 `description`, `returns` and `params`; each param uses `name`, `type`,
@@ -192,14 +243,20 @@ Each metadata dict from Python has:
 
 ## Phase 2: Type mapping
 
-### map_param(param)
+### map_param(param, literal_strings: false)
 
-Maps a Python parameter to a Scout input type declaration.
+Maps a Python parameter to a Scout input type declaration. The
+`literal_strings` flag (resolved from the workflow's
+`python_literal_strings` at registration time) adds `noload` to
+`str`-mapped inputs so a Ruby `String` naming an existing file is no
+longer read into its contents.
 
 `map_param` matches the exact strings emitted by
 `describe_function` — those are `string`, `integer`, `float`, `boolean`,
 `binary`, `path`, `list[...]` or `None` (no `str`/`int`/`bool` aliases, no
-`task`):
+`task`). Unsupported annotations fail loudly at metadata time on the
+Python side, so the final `:string` fallback is defensive rather than a
+reachable degradation path:
 
 | Python type string | Scout type |
 |--------------------|------------|
@@ -212,7 +269,7 @@ Maps a Python parameter to a Scout input type declaration.
 | `list[string]`, `list[integer]`, `list[float]`, … | `:array` |
 | `list[path]`       | `:file_array` |
 | `nil` (no annotation) | `:string` |
-| (any other string) | `:string`  |
+| (any other string) | `:string` (defensive) |
 
 Only the subtype `path` is inspected inside `list[...]`; every other
 subtype (`list[integer]`, `list[bytes]`, …) collapses to `:array`.
@@ -229,7 +286,10 @@ Maps a Python return annotation to a Scout task return type.
 `string`, `integer`, `float`, `boolean`, `binary`, `path`, `array`, or
 anything beginning with `list[` (no `int`/`bool` aliases, and a bare
 `list` is *not* recognized because a bare `list` annotation is reported as
-the plain type string, not `list[...]`):
+the plain type string, not `list[...]`). Unsupported return annotations
+now fail loudly at metadata time on the Python side, so the final
+`:string` fallback below is a defensive default rather than a reachable
+degradation path:
 
 | Python type string | Scout type |
 |--------------------|------------|
@@ -300,48 +360,48 @@ does not exist.
 
 ### build_python_argv(params, values)
 
-Translates Ruby input values into CLI arguments for the Python script.
+Actual code at HEAD (`lib/scout/workflow/python/inputs.rb`):
 
-The decision tree, in the order the code applies it:
+```ruby
+def self.build_python_argv(params, values)
+  values = values.transform_values { |v| String === v ? v.strip : v }
+  params.map do |param|
+    name, value = param.values_at("name", "default")
+    ...
+  end
+end
+```
 
-1. `values[name]` nil → emit nothing, **regardless of `required`** (the
-   `next unless required; next` pair is a no-op: both branches skip). The
-   missing-required check happens earlier, in Scout's `job`/`run` path
-   (`ParameterException`), not here.
-2. Type string starts with `list[` → build the item list:
-   - `String` naming an **existing file** → the file's lines become the
-     items (checked first, so a literal comma-less string that happens to
-     be an existing file path is silently expanded).
-   - `String` containing a comma → split on commas, each part stripped.
-   - any other `String` → one item.
-   - `Array` (anything responding to `to_ary`) → `to_s` of each element.
-   - anything else → one item, `to_s`.
-   Emit `--name` **once**, followed by every item as its own argv word
-   (matching argparse `nargs='+'`).
-3. `boolean` → if the Python default is `true`, emit `--no-name` when the
-   Ruby value is falsey and nothing when truthy; otherwise (default `false`
-   or `nil`) emit `--name` when truthy and nothing when falsey. So a
-   boolean **without** a default cannot express `false` on the wire.
-4. anything else (scalars, including `path`) → `--name value` with `value`
-   passed verbatim; an existing-file string is *not* read or rewritten.
+Consequences:
+
+- The value mapping is decided by the **value's class**, not the declared
+  Python type: an `Array` emits one argv word per element; a `String`
+  containing commas splits on commas; any other single value emits one
+  word. Arrays serialize literally, full stop — the bridge never reads a
+  file for a list value.
+- `nil` is the only "missing" spelling: a `nil` value emits no flag, while
+  an empty string still emits `--name ''`
+  (so `''` is distinguishable from a missing input).
 
 | Input type | Ruby value handling |
 |------------|---------------------|
 | nil        | Nothing emitted |
 | boolean (no default or default false) | `--name` if true, nothing if false |
 | boolean (default true)  | `--name` if true, `--no-name` if false |
-| list (String naming existing file) | File read line-by-line |
 | list (String with comma) | Split by comma, parts stripped |
 | list (other String) | Single item |
-| list (Array) | One argv word per element |
+| list (Array) | One argv word per element, taken literally |
 | path/file   | Passed as-is |
-| scalar      | `--name value` |
+| scalar      | `--name value` (empty string still emits `--name ''`) |
 
 Ambiguities (Improvements A3): comma-containing elements cannot be
-expressed through a comma-separated string (they are split); elements
-beginning with `-` are emitted bare and are then parsed by argparse as
-options (exit status 2); an empty-string element produces an empty argv
-word.
+expressed through a comma-separated string (they are split) — pass an
+`Array`; elements beginning with `-` are emitted bare and are then parsed
+by argparse as options (exit status 2); an empty-string element produces
+an empty argv word. Note the *Scout input layer* (`:array` inputs) may
+still expand a bare-filename `String` into its lines before the task
+block runs; that is Scout-native behaviour, outside this workflow (see
+[DefiningPythonTasks](../user/DefiningPythonTasks.md)).
 
 ### run_file and shell quoting
 
@@ -435,18 +495,12 @@ taken for dict-like returns.
 
 ## Known issues
 
-1. **Unused `err` variable** (Improvements B1, verified) — In
-   `read_python_metadata`:
-   ```ruby
-   raise "Error getting metadata from #{file}: #{err}" unless out.exit_status == 0
-   ```
-   `err` is never assigned. In practice the line is unreachable:
-   `ScoutPython.run_file` → `CMD.cmd` raises `ProcessFailed` on non-zero
-   exit before the check runs, so the user-facing failure is a
-   `ProcessFailed` with the interpreter's stderr embedded, not this
-   message. Had the line run it would have raised `NameError` (undefined
-   local `err`), and `#{err}` in the interpolation would have evaluated to
-   the method name as a String, not `nil`.
+1. **Unused `err` variable** (Improvements B1 — **resolved**) — the raise
+   in `read_python_metadata` no longer interpolates an undefined local;
+   it is now `raise "Error getting metadata from #{file}"`. In practice
+   `ScoutPython.run_file` → `CMD.cmd` still raises `ProcessFailed` on a
+   non-zero exit before this check runs, so the user-facing failure
+   remains a `ProcessFailed` with the interpreter's stderr embedded.
 
 2. **No metadata caching** (Improvements O1, verified still true at HEAD) —
    `read_python_metadata` runs a Python subprocess every time `python_task`
@@ -457,12 +511,14 @@ taken for dict-like returns.
    registered functions, and import-heavy Python files pay their import
    cost once per registration.
 
-3. **String split ambiguity** (Improvements A3, verified) — In
+3. **String split ambiguity** (Improvements A3 — **resolved**) — In
    `build_python_argv`, list inputs given as strings are split by comma, so
-   `'a,b'` becomes two elements while `['a,b']` stays one. The
-   existing-file check runs first, so a comma-separated string naming an
-   existing file is expanded to that file's lines. Elements beginning with
-   `-` break argparse.
+   `'a,b'` becomes two elements while `['a,b']` stays one. Elements
+   beginning with `-` break argparse. The bridge serializes an `Array`
+   literally, full stop; pass an `Array` to keep comma-containing elements
+   intact. The Scout input layer (`:array` inputs) may still expand a
+   bare-filename `String` into its lines before the task block runs — that
+   is Scout-native behaviour, out of scope here.
 
 4. **Return decoding ambiguity** (verified) — If a string return value
    happens to be valid JSON, it is JSON-parsed instead of returned as-is

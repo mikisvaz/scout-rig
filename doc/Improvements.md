@@ -18,37 +18,19 @@ campaign against the probe evidence recorded in the Cortex artifacts under
 
 ### B1. Unused `err` variable in `read_python_metadata`
 
-**Status:** ● Verified open — and the `raise` is dead code in practice
-(evidence: `scout-rig/subsys/pythonworkflow.md`)
+**Status:** ● Resolved — the raise no longer interpolates the undefined
+local; it reads `raise "Error getting metadata from #{file}" unless
+out.exit_status == 0`. In practice `ScoutPython.run_file` → `CMD.cmd`
+still raises `ProcessFailed` on a non-zero exit before this check runs, so
+the user-facing failure remains a `ProcessFailed` with the interpreter's
+stderr embedded; the previously misquoted message ("for
+#{File.basename(file)}: #{err}") never existed in that form at this site.
 
 **Location:** `lib/scout/workflow/python/task.rb`
 
-The `read_python_metadata` method references `err` in its error message:
-
-```ruby
-def self.read_python_metadata(file)
-  out = ScoutPython.run_file file, '--scout-metadata'
-  raise "Error getting metadata for #{File.basename(file)}: #{err}"
-    unless out.exit_status == 0
-  ...
-end
-```
-
-But `err` is never assigned. The error message will show `nil` for the
-error detail.
-
-**Fix:** Capture stderr from `run_file` and include it:
-
-```ruby
-def self.read_python_metadata(file)
-  out = ScoutPython.run_file file, '--scout-metadata'
-  unless out.exit_status == 0
-    err = out.stderr.read
-    raise "Error getting metadata for #{File.basename(file)}: #{err}"
-  end
-  ...
-end
-```
+The historical issue: the raise referenced an `err` local that was never
+assigned, and the line was unreachable in practice because `CMD.cmd`
+raises `ProcessFailed` first.
 
 ### B2. `at_exit` hook kills all non-main threads
 
@@ -229,12 +211,18 @@ or respect the declared return type strictly during decoding.
 
 ### A3. List input comma-split ambiguity
 
-**Status:** ● Verified open — confirmed, plus two undocumented siblings:
-an existing-file check shadows a literal comma-separated value (file lines
-win), and bare `-`-prefixed elements break argparse (exit 2). All
-documented in [Defining Python Tasks](user/DefiningPythonTasks.md) and
-[PythonWorkflow Internals](developer/PythonWorkflowInternals.md) (evidence:
-`scout-rig/subsys/pythonworkflow.md`)
+**Status:** ● Resolved (2026-11-23 simplification pass) — the deprecated
+filename-to-lines expansion and its `python_literal_lists` flag are
+removed outright: the bridge serializes an `Array` list value literally,
+full stop, and a `String` list value is comma-split only, never read from
+disk. Passing an `Array` keeps comma-containing elements intact. The
+remaining sharp edges (bare `-`-prefixed elements still break argparse,
+exit 2; the Scout input layer may still expand a bare-filename `String`
+into its lines before the task block runs — Scout-native behaviour, out
+of scope) are documented in
+[Defining Python Tasks](user/DefiningPythonTasks.md) and
+[PythonWorkflow Internals](developer/PythonWorkflowInternals.md)
+(evidence: `scout-rig/subsys/pythonworkflow.md`)
 
 **Location:** `lib/scout/workflow/python/inputs.rb`
 
@@ -248,8 +236,11 @@ values = value.split(",")
 If the actual data contains commas (e.g., gene names with commas, file
 paths with commas), this will incorrectly split the value.
 
-**Suggestion:** Use newline-split instead of comma-split, or detect whether
-the string looks like a file path and read it as a list file.
+**Delivered design (superseded):** the flag-based mitigation was replaced
+in the 2026-11-23 simplification pass by outright removal — the bridge's
+filename-expansion branch no longer exists, so there is no legacy mode to
+opt into. `['a,b']` (an `Array`) is passed faithfully and is the
+recommended spelling for comma-bearing elements.
 
 ### A4. `path` return type maps to `:string`
 

@@ -121,22 +121,42 @@ automatically:
 | `list[int]`        | `:array`         |
 | `list[float]`      | `:array`         |
 | `list[pathlib.Path]` | `:file_array`  |
-| `Optional[str]`    | `:string` (not required) |
+| `Optional[str]`    | `:string` (required unless it has a default) |
 | unannotated parameter | `:string` (required) |
-| any other/unrecognized annotation | `:string` |
+
+Unsupported annotations (dict, bare `list`, `int | str`, custom classes)
+raise a clear error at task-registration time instead of silently mapping
+to `:string`.
 
 Notes, verified at HEAD:
 
 - The mapping keys on the *Python type string* produced by
   `describe_function`, so `list[...]` (typing or builtin generics) yields
-  `:array`/`:file_array`, while a bare `list` annotation degrades to
-  `:string` on the input side.
+  `:array`/`:file_array`, while a bare `list` annotation raises at
+  registration time.
 - A parameter is `required` iff it has no Python default (so
   `Optional[str]` without a default is still required).
 - Python defaults are propagated verbatim as Scout input defaults, whatever
   their JSON type (e.g. `5`, `'hi'`, `True`).
 - The Python parameter's `help` text (from the docstring) becomes the Scout
   input description.
+- **Postponed annotations** (`from __future__ import annotations`) are fully
+  supported and map identically to plain ones: `str→:string`,
+  `pathlib.Path→:file`, `list[Path]→:file_array`, `Path | None→:file`, and
+  `Annotated[Path, …]→:file`. `python_annotation` preserves the complete
+  annotation form: bare classes keep their short name (`str`, `Path`), while
+  anything parameterized renders in full — `Annotated[Path, 'extra']` is
+  recorded as `typing.Annotated[pathlib._local.Path, 'extra']`,
+  `Optional[Path]` as `typing.Optional[pathlib._local.Path]` and `Path | None`
+  as `pathlib._local.Path | None`. The value is diagnostic only; it never
+  affects the annotation→Scout-type mapping. Annotations are resolved eagerly
+  with
+  `inspect.signature(..., eval_str=True)`, so a postponed or quoted annotation
+  is evaluated against the module namespace at registration time. A name that
+  does not resolve fails **loudly** — never a silent `:string` mapping — and
+  the error explains that a quoted annotation stays a string unless the type
+  is importable or defined at registration time; a genuinely undefined name
+  raises `NameError` at import.
 
 ### Return types
 
@@ -148,13 +168,13 @@ Notes, verified at HEAD:
 | `bool`                   | `:boolean`        |
 | `bytes`                  | `:binary`         |
 | `pathlib.Path`           | `:string`         |
-| `list`, `list[str]`      | `:array`          |
+| `list[str]`              | `:array`          |
 | no return annotation     | `:string`         |
-| any other annotation     | `:string`         |
 
-Note the asymmetry: a `pathlib.Path` **input** maps to `:file`, but a
-`pathlib.Path` **return** maps to `:string` (there is no `:file` return
-type in this mapping).
+Unsupported return annotations raise the same registration-time error as
+parameters. Note the asymmetry: a `pathlib.Path` **input** maps to
+`:file`, but a `pathlib.Path` **return** maps to `:string` (there is no
+`:file` return type in this mapping).
 
 ## What a task returns
 
@@ -451,11 +471,14 @@ TestWF.python_task_dir = Path.setup("python/tasks")
 The extension hook does not preload tasks. Assigning `python_task_dir` loads
 the assigned directory using batch metadata discovery (one Python runner
 invocation for the directory). The lower-level
-`PythonWorkflow.load_directory(path, name, batch: true)` opts into the same
-batch mode. `load_directory(path, name)` defaults to `batch: false` and
-continues to discover metadata with one Python invocation per file. Use that
-default when per-file process isolation is needed; batch and per-file loading
-are not guaranteed to be semantically equivalent for Python files with
+`PythonWorkflow.load_directory(path, name, batch: false)` explicitly requests
+per-file metadata discovery (one Python invocation per file); its default is
+`batch: true`. `load_directory(path, name, literal_strings: true)` also
+initializes `python_literal_strings` **before** any task is registered, so
+string inputs get `noload` from the start — the plain
+`python_literal_strings=` setter does not re-register already-loaded tasks. Use
+per-file mode when process isolation is needed; batch and per-file loading are
+not guaranteed to be semantically equivalent for Python files with
 process-global state or shared imports.
 
 Batch mode executes each task file as `__main__` to preserve registrations
@@ -498,31 +521,114 @@ wire; the function always receives `False`.
 
 ## List inputs
 
-List inputs accept several value shapes on the Ruby side:
+List inputs accept several value shapes on the Ruby side. The bridge
+serializes an `Array` **literally** — one flag, elements as separate argv
+words, no re-reading of files. Array elements are never reinterpreted:
+the file name `'tmp/probes/listfile.txt'` in an `Array` is passed as path
+text.
 
 | Ruby value | Resulting argv |
 |------------|----------------|
-| `Array` | `--items a b c` (one flag, elements as separate argv words) |
-| `String` containing commas and naming no existing file | `--items a b c` (split on commas, each part stripped) |
-| `String` naming an **existing file** | `--items <each line of the file>` (file read line by line) |
+| `Array` | `--items a b c` (one flag, elements as separate argv words, taken literally) |
+| `String` containing commas | `--items a b c` (split on commas, each part stripped) |
 | Any other single value | `--items value` |
 
 Caveats (verified):
 
+- **Two layers.** The bridge itself never reads a file for a list value.
+  But the *Scout input layer* is a separate layer: a bare-filename
+  `String` may still be expanded into its lines by Scout's `:array` input
+  before the task block runs. That behaviour is Scout-native and out of
+  scope here — pass an `Array` when you need the literal path text.
 - **Comma ambiguity.** A single-element array whose element contains a
   comma, `['a,b']`, is passed faithfully as one argv word when it comes
   from an `Array`; but the same text given as a `String`, `'a,b'`, is
   **split into two elements** `a` and `b`. Pass arrays when elements may
   contain commas.
-- **File shadowing.** The file check happens before the comma check and is
-  not type-annotated: a list element set that happens to equal the name of
-  an existing file (e.g. `'tmp/probes/listfile.txt'`) is read from disk
-  instead of being passed literally. A comma-separated string naming an
-  existing file is therefore silently expanded to the file's lines.
 - **Leading-dash elements.** An element beginning with `-` (e.g. `['a','-b']`)
   is emitted as a bare argv word; argparse then interprets it as an option
   and the run fails with exit status 2.
 - Empty-string elements are preserved (`['a','','b']` → `--items a '' b`).
+- **Empty-string scalars.** A scalar input whose value is the empty string
+  always emits `--word ''`, so `''` is distinguishable from a missing input
+  (only `nil` is skipped and produces no flag).
+
+## Literal strings
+
+One workflow flag controls whether Scout expands filename-like values
+before they reach Python.
+
+### `python_literal_strings`
+
+Default `false`: for a `str`-annotated parameter, Scout loads a Ruby
+`String` naming an existing file into that file's contents (the Scout
+input-layer convention for `:string` inputs), so the Python function
+receives the file contents.
+
+With `workflow.python_literal_strings = true`, `str` parameters register
+their Scout input with `noload`, so a Ruby `String` reaches Python
+literally as the text (or path text) you passed — no file read happens.
+
+The flag is read **at registration time**, when the input options are
+built: set it *before* `load_directory` / any `python_task` registration.
+Flipping it afterwards requires `refresh_python_tasks!` (or re-registering
+the tasks) to rebuild the input options; `Workflow.job_cache` can also
+memoize old steps, so clear it (`workflow.job_cache.clear`) when switching
+modes inside one process. List inputs are not affected by this flag: an
+`Array` list value is always serialized literally by the bridge (see
+[List inputs](#list-inputs)).
+
+## Input contracts
+
+`workflow.python_input_contracts` returns one string-keyed entry per
+registered Python task — index it as `python_input_contracts['task']` — and
+`python_input_contract('task', 'input')` inspects a single input (both
+arguments are strings, not symbols). There is **one authoritative view per
+task**, built from the stored registration metadata — not from a fresh
+extraction of the live task's inputs.
+
+Each input entry carries the Python annotation (`python_annotation`, the
+complete annotation form as described above), the Scout type (`scout_type`),
+the default, requiredness, and a `behavior` column describing what the Ruby
+value becomes:
+
+- `:file` / `:file_array` → `'filename'`
+- `:string` → `'literal text'` when `python_literal_strings` was set at
+  registration time, otherwise `'text or loaded file contents'`
+- `:array` → `'list of strings'`; `:file_array` → `'list of filenames'`
+
+A `flags` field records active options such as `noload`.
+
+**The contract comes from stored registration metadata, not live
+extraction** — after editing a Python file, run `refresh_python_tasks!`
+before the contract reflects the new source.
+
+## Refreshing registered Python tasks
+
+`workflow.refresh_python_tasks!` re-reads the Python task directory and
+reconciles the registered tasks with what the files currently export:
+
+| Situation | Result |
+|-----------|--------|
+| New Python function | registered (`:added`) |
+| Changed signature or metadata | re-registered (`:changed`) |
+| Deleted Python function | its registration is removed (`:removed`) |
+| Unchanged definition | left alone (`:unchanged`) — the task object and cached job results survive |
+| Name collision, including with an existing native (Ruby-defined) task | raises a clear error, nothing changed |
+| Body changed, metadata unchanged | still `:unchanged`: the registration is kept, execution uses the current source on a fresh run, cached results remain |
+
+It returns a summary hash `{added:, changed:, removed:, unchanged:}` and is
+idempotent (a second refresh with unchanged sources reports everything as
+`unchanged`). A failed refresh mutates nothing: the complete desired
+registry — shape, duplicates, names exported by two files, native
+collisions — is validated **before** the first mutation, so a raise leaves
+the registry and the tracking map exactly as they were. Only the tasks whose
+metadata actually changed are re-registered; their unchanged siblings keep
+the task objects and in-process cached results the previous registration
+installed. Editing the `python_literal_strings` flag alone (without a source
+change) also shows up as `:changed`, because the flag is fixed at
+registration time. It is the right call after editing Python sources
+in-process (e.g. from a ScoutCoder `reload_workflow`).
 
 ## Common mistakes
 

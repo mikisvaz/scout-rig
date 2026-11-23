@@ -5,7 +5,11 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import get_origin, get_args, Union, List
+from types import UnionType
+# typing.get_type_hints is deliberately NOT used: inspect.signature(eval_str=True)
+# already resolves postponed and quoted annotations against the module namespace
+# and covers the whole supported surface; see describe_function.
+from typing import Annotated, Any, get_args, get_origin, List, Union
 import atexit
 import runpy
 import traceback
@@ -52,47 +56,115 @@ if __name__ == "__main__" and "--scout-metadata-files" in sys.argv:
     sys.exit(0)
 
 
-def _python_type_to_string(ann) -> str:
+def _annotation_repr(ann) -> str:
+    """Complete, human-readable annotation used for diagnostics metadata.
+
+    Parameterized annotations are rendered in full: Annotated[Path, 'extra']
+    keeps both the wrapped type and the tag instead of collapsing to the bare
+    name "Annotated". The value is purely diagnostic; the annotation->Scout
+    type mapping in _python_type_to_string is unaffected.
+    """
+    if ann is inspect.Parameter.empty:
+        return ""
+    if isinstance(ann, str):
+        return ann
+    # Bare classes keep the short name (str, Path, ...) for readability.
+    if isinstance(ann, type):
+        return getattr(ann, "__name__", str(ann))
+    # Anything parameterized (Annotated[...], Optional[...], list[...], unions)
+    # renders its complete typing form.
+    text = str(ann)
+    return text[len("<class '"):-len("'>")] if text.startswith("<class '") else text
+
+
+def _unsupported_annotation_error(kind: str, name: str, ann) -> ValueError:
+    hint = ""
+    if isinstance(ann, str):
+        hint = (
+            f" This annotation stayed the string {ann!r}: under "
+            "'from __future__ import annotations' (or any quoted annotation) "
+            "it is only evaluated when the name is importable or defined in "
+            "the module at registration time — import the type or define it, "
+            "or annotate with the type itself rather than its name."
+        )
+    return ValueError(
+        f"Unsupported {kind} annotation for '{name}': {ann!r}. "
+        "Supported: str, bytes, int, float, bool, pathlib.Path, "
+        "typing.Optional[...] of one supported type, PEP 604 unions with None "
+        "(e.g. Path | None), list[...] of a supported subtype, "
+        "typing.Annotated[...] of a supported type, or no annotation (string)."
+        f"{hint}"
+    )
+
+
+def _python_type_to_string(ann, kind: str = "parameter", name: str = "?") -> str:
     if ann is inspect._empty:
         return "string"
     origin = get_origin(ann)
     args = get_args(ann)
 
-    if origin is Union:
+    if origin is Annotated:
+        # Keep the underlying type mapping; the Annotated metadata itself is
+        # preserved in the 'annotation' field of the parameter metadata.
+        if not args:
+            raise _unsupported_annotation_error(kind, name, ann)
+        return _python_type_to_string(args[0], kind, name)
+
+    if origin is Union or origin is UnionType:
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1:
-            return _python_type_to_string(non_none[0])
-        return "string"
+            return _python_type_to_string(non_none[0], kind, name)
+        raise _unsupported_annotation_error(kind, name, ann)
 
     if origin in (list, List):
-        subtype = "string"
-        if args:
-            subtype = _python_type_to_string(args[0])
+        if not args:
+            raise _unsupported_annotation_error(
+                kind, name,
+                "bare list (write list[str], list[Path], ... so element types are explicit)"
+            )
+        subtype = _python_type_to_string(args[0], kind, name)
         return f"list[{subtype}]"
 
     if ann is Path:
         return "path"
 
-    if ann in (str, bytes):
-        return "string" if ann is str else "binary"
+    if ann is str or ann is inspect.Parameter.empty:
+        return "string"
+    if ann is bytes:
+        return "binary"
     if ann is int:
         return "integer"
     if ann is float:
         return "float"
     if ann is bool:
         return "boolean"
+    if ann is Any:
+        # Explicit opt-out: the author declared the input untyped, which maps
+        # deliberately (and documented) to string.
+        return "string"
+    if isinstance(ann, type) and issubclass(ann, (str, bytes, int, float, bool, Path)):
+        # Subclasses of supported scalar types behave like their base type.
+        if issubclass(ann, str):
+            return "string"
+        if issubclass(ann, bytes):
+            return "binary"
+        if issubclass(ann, bool):
+            return "boolean"
+        if issubclass(ann, int):
+            return "integer"
+        if issubclass(ann, float):
+            return "float"
+        if issubclass(ann, Path):
+            return "path"
 
-    return "string"
+    raise _unsupported_annotation_error(kind, name, ann)
 
 
 def _required_from_default(default_val, ann) -> bool:
-    if default_val is not inspect._empty:
-        return False
-    origin = get_origin(ann)
-    args = get_args(ann)
-    if origin is Union and type(None) in args:
-        return False
-    return True
+    # A parameter is required iff it has no default. Optional[...] does not
+    # make a parameter optional; passing None from the Ruby side is still an
+    # explicit nil for a required input.
+    return default_val is inspect._empty
 
 
 def _parse_numpy_params(doc: str) -> dict:
@@ -304,23 +376,30 @@ def _extract_extension(docstring: str) -> tuple[str | None, str]:
 
 
 def describe_function(func) -> dict:
+    # Annotations are resolved eagerly with eval_str=True: postponed
+    # annotations (`from __future__ import annotations`) and quoted forward
+    # references are evaluated against the module namespace, so they map the
+    # same as plain ones as long as the names resolve at registration time.
+    # A name that does not resolve stays a string and fails loudly in
+    # _python_type_to_string (never a silent :string mapping).
     sig = inspect.signature(func, eval_str=True)
     doc = inspect.getdoc(func) or ""
     extension, doc = _extract_extension(doc)
     params_doc = _parse_numpy_params(doc)
 
-    ret_type = _python_type_to_string(sig.return_annotation)
+    ret_type = _python_type_to_string(sig.return_annotation, "return", func.__name__)
     description = _extract_description(doc)
 
     params = []
     for name, p in sig.parameters.items():
-        p_type = _python_type_to_string(p.annotation)
+        p_type = _python_type_to_string(p.annotation, "parameter", name)
         default = None if p.default is inspect._empty else p.default
         required = _required_from_default(p.default, p.annotation)
         help_text = params_doc.get(name, "")
         params.append({
             "name": name,
             "type": p_type,
+            "annotation": _annotation_repr(p.annotation),
             "required": required,
             "default": default,
             "help": help_text,
@@ -379,7 +458,7 @@ def _add_arg_for_param(parser, p):
         elif subtype == "float":
             py_caster = float
         elif subtype == "path":
-            py_caster = lambda s: str(Path(s))
+            py_caster = Path
         parser.add_argument(flag, nargs="+", type=py_caster, required=required, default=default, help=help_text)
         return
 
@@ -399,7 +478,7 @@ def _add_arg_for_param(parser, p):
     elif ptype == "float":
         py_caster = float
     elif ptype == "path":
-        py_caster = lambda s: str(Path(s))
+        py_caster = Path
 
     parser.add_argument(flag, type=py_caster, required=required, default=default, help=help_text)
 

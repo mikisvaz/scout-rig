@@ -36,26 +36,46 @@ discovery.
 
 ## Type mapping
 
-`_python_type_to_string(ann)` maps a type hint to one of the Scout input
-type strings `map_param` on the Ruby side understands.
+`_python_type_to_string(ann, kind="parameter", name="?")` maps a type hint
+to one of the Scout input type strings `map_param` on the Ruby side
+understands; `kind`/`name` only feed the error text when a hint is
+unsupported. Annotations are resolved eagerly in `describe_function` with
+`inspect.signature(func, eval_str=True)`, so **postponed annotations**
+(`from __future__ import annotations`) and quoted forward references are
+evaluated against the module namespace and map exactly like plain ones
+(`str→"string"`, `Path→"path"`, `list[Path]→"list[path]"`, `Path | None→"path"`,
+`Annotated[Path, …]→"path"` with the annotation text preserved). A name that
+does not resolve stays a string and fails loudly here — never a silent
+`"string"` mapping — and `_unsupported_annotation_error` explains that a
+quoted annotation only evaluates when the type is importable or defined at
+registration time; a genuinely undefined name raises `NameError` at import.
+`typing.get_type_hints` is deliberately not used; eval_str covers the whole
+supported surface.
 
 - No annotation -> `"string"`.
 - `Optional[X]` / `X | None` -> the mapping of `X`.
 - `list[X]` (a parameterized generic, including `typing.List[X]`) ->
   `"list[<subtype>]"` where `<subtype>` is the mapping of `X`. A **bare**
-  `list` annotation has `get_origin(list) is None`, so it falls through the
-  branch and maps to `"string"` — `list` and `list[str]` do not behave
-  alike.
+  `list` annotation raises `ValueError("Unsupported parameter annotation
+  ... bare list (write list[str], list[Path], ...)")` rather than silently
+  mapping to `"string"`.
 - `pathlib.Path` -> `"path"`.
 - `str` -> `"string"`, `bytes` -> `"binary"`, `int` -> `"integer"`,
   `float` -> `"float"`, `bool` -> `"boolean"`.
-- Anything else (including `dict[...]`, `set`, custom classes) ->
-  `"string"`; nothing raises.
+- Subclasses of the supported scalars (`str`, `bytes`, `int`, `float`,
+  `bool`, `pathlib.Path`) map like their base type.
+- `typing.Any` deliberately maps to `"string"` — the explicit untyped
+  opt-out.
+- `Annotated[X, ...]` unwraps to the mapping of `X`; the full annotation
+  text is still preserved in the metadata's `annotation` field.
+- Anything else (`dict[...]`, `set`, custom classes, multi-member unions
+  such as `int | str`) raises `_unsupported_annotation_error` at
+  metadata time instead of degrading to `"string"`.
 
-`_required_from_default(default_val, ann)` returns False when the parameter
-has a default, or when its annotation is `Optional`. A parameter with no
-default and no `Optional` is required (verified: `a: str` and `b: "str |
-None"` are both required; `c=None` and `d: int = 3` are not).
+`_required_from_default(default_val)` returns `default_val is
+inspect._empty`: a parameter with no default is required (verified: `a:
+str` and `b: "str | None"` are both required; `c=None` and `d: int = 3`
+are not).
 
 The `BooleanOptionalAction` special case on the CLI comes from
 `_add_arg_for_param`, not from `describe_function`: the flag code branches
@@ -174,7 +194,7 @@ one `argparse` parser per invocation.
 
 - Every parameter becomes `--name` (`--scout-output` is reserved; see below).
 - `list[...]` parameters get `nargs='+'` with a caster for the declared
-  element type (`integer` -> `int`, `float` -> `float`, `path` -> `str(Path(s))`,
+  element type (`integer` -> `int`, `float` -> `float`, `path` -> `Path`,
   otherwise `str`).
 - `boolean` parameters: only `default is True` (an explicit `= True`)
   yields `argparse.BooleanOptionalAction`, so both `--flag` and
@@ -182,13 +202,13 @@ one `argparse` parser per invocation.
   `action="store_true"` with `default=False`, i.e. the flag can only turn
   it **on** (verified: `flag: bool = False` shows `--flag` with no value,
   and running without it returns `flag=False`).
-- `integer` -> `int`, `float` -> `float`, `path` -> `str(Path(s))`, anything
+- `integer` -> `int`, `float` -> `float`, `path` -> `Path`, anything
   else (including `string`, `binary`, `array`, and unmapped types) -> `str`.
 - `--scout-metadata` is not an argparse flag at all: it is tested directly
   against `sys.argv` before parsing. `--scout-output` is the only argparse
   flag the runner adds itself.
 - `required` comes from `describe_function`: a parameter with no default
-  and no `Optional` is required; `help` is the parsed docstring entry.
+  is required; `help` is the parsed docstring entry.
 - `*args`/`**kwargs` parameters are described like ordinary required
   parameters with type `"string"` (`--args ARGS`, `--kw KW`); they are not
   filtered out (verified), so such a task is nearly unusable from the CLI
