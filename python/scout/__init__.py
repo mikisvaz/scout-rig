@@ -145,13 +145,74 @@ def tsv_pandas(filename, sep="\t", comment_char="#", index_col=0, **kwargs):
 def tsv(*args, **kwargs):
     return tsv_pandas(*args, **kwargs)
 
-def save_tsv(filename, df, key=None):
-    if (key == None):
+
+def save_tsv(filename, df, key=None, metadata=None):
+    """Write a pandas DataFrame as a Scout TSV.
+
+    The DataFrame index is used as the Scout key.
+
+    Args:
+        filename: Output file path.
+        df: pandas DataFrame.
+        key: Key-field name. Defaults to the index name or "Key".
+        metadata: Optional dictionary of Scout TSV metadata,
+            e.g. {"type": "list", "namespace": "Hsa"}.
+
+    Metadata values must be scalar. Ruby symbol-valued options
+    such as type and cast are serialized with a leading colon.
+    """
+    import re
+
+    if key is None:
         key = df.index.name
-    if (key == None):
+    if key is None:
         key = "Key"
-    key = "#" + key
-    df.to_csv(filename, sep="\t", index_label=key)
+
+    key = "#" + str(key)
+
+    if not metadata:
+        df.to_csv(filename, sep="\t", index_label=key)
+        return
+
+    entries = []
+
+    for name, value in metadata.items():
+        if value is None:
+            continue
+
+        name = str(name).removeprefix(":")
+
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise ValueError(f"Invalid TSV metadata key: {name!r}")
+
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        elif isinstance(value, (str, int, float)):
+            value = str(value)
+        else:
+            raise TypeError(
+                f"TSV metadata {name!r} must be a scalar value"
+            )
+
+        if name in ("type", "cast") and not value.startswith(":"):
+            value = ":" + value
+
+        if (
+            not value
+            or value != value.strip()
+            or any(c in value for c in "#=\t\r\n")
+        ):
+            raise ValueError(
+                f"Invalid TSV metadata value for {name!r}: {value!r}"
+            )
+
+        entries.append(f":{name}={value}")
+
+    with open(filename, "w", encoding="utf-8", newline="") as out:
+        if entries:
+            out.write("#: " + "#".join(entries) + "\n")
+
+        df.to_csv(out, sep="\t", index_label=key)
 
 def save_job_inputs(data):
     temp_dir = tempfile.mkdtemp()  # Create a temporary directory
